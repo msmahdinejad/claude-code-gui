@@ -3,7 +3,7 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, minor versions may change the config format).
 
-## [Unreleased]
+## [0.2.2] - 2026-10-27
 
 ### Fixed
 - A page that stays open while the server restarts no longer shows only "Working…" for sessions that were open before
