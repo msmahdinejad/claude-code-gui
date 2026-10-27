@@ -273,7 +273,7 @@ export default function register({ route, HttpError, fsgit }) {
     const root = await needRepo(query.get("cwd"));
     const limit = Math.min(Math.max(Number(query.get("limit")) || 60, 1), 400);
     const skip = Math.max(Number(query.get("skip")) || 0, 0);
-    let stdout = "";
+    let stdout;
     try {
       ({ stdout } = await git(root, ["log", "--all", "--topo-order", `-n${limit}`, `--skip=${skip}`, "--pretty=format:%H%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e"]));
     } catch {
