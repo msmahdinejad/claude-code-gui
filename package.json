@@ -1,16 +1,43 @@
 {
   "name": "claude-code-gui",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A desktop-class graphical interface for Claude Code. Runs locally in your browser or as a standalone window, with first-class right-to-left support.",
   "type": "module",
   "license": "MIT",
   "author": "msmahdinejad",
   "homepage": "https://github.com/msmahdinejad/claude-code-gui#readme",
-  "repository": { "type": "git", "url": "git+https://github.com/msmahdinejad/claude-code-gui.git" },
-  "bugs": { "url": "https://github.com/msmahdinejad/claude-code-gui/issues" },
-  "keywords": ["claude", "claude-code", "gui", "web-ui", "ai-coding", "agent", "rtl", "persian", "farsi", "i18n"],
-  "bin": { "wheelhouse": "bin/wheelhouse.mjs" },
-  "files": ["bin", "server", "web", "examples", "docs", "LICENSE", "README.md", "THIRD_PARTY_NOTICES.md"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/msmahdinejad/claude-code-gui.git"
+  },
+  "bugs": {
+    "url": "https://github.com/msmahdinejad/claude-code-gui/issues"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "gui",
+    "web-ui",
+    "ai-coding",
+    "agent",
+    "rtl",
+    "persian",
+    "farsi",
+    "i18n"
+  ],
+  "bin": {
+    "wheelhouse": "bin/wheelhouse.mjs"
+  },
+  "files": [
+    "bin",
+    "server",
+    "web",
+    "examples",
+    "docs",
+    "LICENSE",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
   "scripts": {
     "start": "node bin/wheelhouse.mjs",
     "dev": "node --watch server/index.mjs",
@@ -20,7 +47,9 @@
     "i18n:check": "node scripts/extract-i18n.mjs --fail",
     "build:vendor": "node scripts/build-vendor.mjs"
   },
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.309",
     "zod": "^4.0.0"

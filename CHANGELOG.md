@@ -3,6 +3,16 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, minor versions may change the config format).
 
+## [0.1.1] - 2026-10-27
+
+### Changed
+- The repository and package are now called `claude-code-gui` (the app keeps the Wheelhouse name).
+- Development dependencies updated (eslint 10, marked 18, esbuild 0.28, puppeteer-core 25) and GitHub Actions bumped.
+
+### Fixed
+- The first-run "not signed in" notice is no longer hidden when `ANTHROPIC_BASE_URL` is the official API URL.
+- Link to the Agent SDK documentation.
+
 ## [0.1.0] - 2026-10-27
 
 First public release.
