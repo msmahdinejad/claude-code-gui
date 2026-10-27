@@ -1,0 +1,48 @@
+/* Extensions: MCP, plugins, skills, commands, agents */
+.ext-page, .ext-panel { display: flex; flex-direction: column; gap: 10px; }
+.ext-body { display: flex; flex-direction: column; gap: 10px; }
+.ext-panel { padding: 14px; }
+.ext-title { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.ext-title h3 { margin: 0; font-size: .95em; flex: 1; min-width: 0; }
+.ext-sub { margin: 10px 0 0; font-size: .75em; letter-spacing: .04em; color: var(--text-3); text-transform: uppercase; overflow-wrap: anywhere; }
+.ext-card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.ext-card.compact { padding: 6px 10px; }
+.ext-card-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ext-card-head .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ext-card-head .grow strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ext-card-head .grow .muted { font-size: .8em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ext-card-head > .icon { color: var(--text-3); }
+.ext-desc { font-size: .85em; }
+.ext-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ext-actions .small-select { width: auto; min-height: 28px; padding: 0 8px; font-size: .82em; }
+.ext-empty { padding: 14px; text-align: center; color: var(--text-3); border: 1px dashed var(--line-strong); border-radius: var(--radius); font-size: .88em; }
+.ext-loading { display: flex; align-items: center; gap: 8px; padding: 18px; color: var(--text-3); }
+.ext-banner-host:empty { display: none; }
+.ext-banner-host .grow, .banner .grow { flex: 1; }
+.ext-fold { display: flex; align-items: center; gap: 8px; padding: 8px 4px; color: var(--text-2); font-size: .88em; text-align: start; }
+.ext-fold:hover { color: var(--text); }
+.ext-details { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.ext-details > summary { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer; font-weight: 600; font-size: .9em; list-style: none; }
+.ext-details > summary::-webkit-details-marker { display: none; }
+.ext-details[open] > summary { border-bottom: 1px solid var(--line); }
+.ext-details > :not(summary) { margin: 12px; }
+.ext-form { display: flex; flex-direction: column; gap: 6px; }
+.ext-form-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.ext-form-row .field { flex: 1; min-width: 140px; margin-bottom: 8px; }
+.ext-form-row .field.grow { flex: 2; min-width: 220px; }
+.ext-fields { display: flex; flex-direction: column; margin-top: 10px; }
+.ext-errors { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.ext-errors:empty { display: none; }
+.ext-pre { margin: 0; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--code-bg); border: 1px solid var(--line); font-size: .78em; max-height: 260px; overflow: auto; white-space: pre-wrap; text-align: left; }
+.ext-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.ext-fileblock { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.ext-choices { display: flex; flex-direction: column; gap: 10px; }
+.ext-choice { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: var(--radius); text-align: start; }
+.ext-choice:hover { border-color: var(--accent); background: var(--accent-soft); }
+.ext-choice div { display: flex; flex-direction: column; min-width: 0; }
+.ext-choice .muted { font-size: .8em; overflow-wrap: anywhere; }
+.mcp-tools { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 240px; overflow: auto; }
+.mcp-tools li { display: flex; gap: 10px; align-items: baseline; font-size: .84em; }
+.mcp-tools code { white-space: nowrap; color: var(--accent); }
+.mcp-tools .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.banner-text small { display: block; margin-top: 2px; }

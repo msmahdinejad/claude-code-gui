@@ -1,0 +1,63 @@
+/* Settings editors: permissions, env, hooks, memory, output styles, advanced. */
+.settings-scope-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.settings-scope-info { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-bottom: 16px; font-size: .82em; }
+.settings-path { direction: ltr; unicode-bidi: isolate; padding: 2px 8px; border-radius: 6px; background: var(--code-bg); border: 1px solid var(--line); word-break: break-all; }
+.settings-body { min-height: 80px; }
+.small { font-size: .84em; }
+.field-label { font-size: .8em; font-weight: 600; color: var(--text-2); margin: 12px 0 4px; }
+.mono, .input.mono { font-family: var(--font-mono); font-size: .86em; direction: ltr; text-align: left; }
+.grow { flex: 1; min-width: 0; }
+.icon-gap { display: inline-block; width: 32px; flex: none; }
+.chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.inline-controls { display: inline-flex; align-items: center; gap: 12px; }
+
+/* rule lists */
+.rule-editor { display: flex; flex-direction: column; gap: 8px; }
+.rule-list { display: flex; flex-direction: column; gap: 6px; }
+.rule-row { display: flex; align-items: center; gap: 6px; }
+.rule-row .rule-input { flex: 1; }
+.rule-empty { padding: 8px 2px; }
+.rule-add { display: flex; gap: 8px; }
+.rule-add .input { flex: 1; font-family: var(--font-mono); font-size: .86em; }
+.rule-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.list-row.selected { border-color: var(--accent); background: var(--accent-soft); }
+.list-row-stack { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+
+/* env */
+.env-table { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.env-row { display: grid; grid-template-columns: minmax(120px, 0.8fr) minmax(160px, 1.4fr) 32px 32px; gap: 6px; align-items: center; }
+.env-row.env-add { grid-template-columns: minmax(120px, 0.8fr) minmax(160px, 1.4fr) auto; }
+.env-info dt { font-family: var(--font-mono); font-size: .85em; direction: ltr; }
+.env-info dd { font-family: var(--font-mono); font-size: .85em; }
+
+/* hooks */
+.hook-matcher { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2); padding: 10px 12px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 10px; }
+.hook-matcher-head { display: flex; align-items: center; gap: 8px; }
+.hook-matcher-head .icon-btn { margin-inline-start: auto; }
+.hook-card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 10px 12px; }
+.hook-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.hook-card textarea { width: 100%; }
+.hook-extras { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 8px; }
+.hook-extras .input { width: auto; min-width: 100px; }
+.hook-num { display: inline-flex; align-items: center; gap: 6px; font-size: .84em; color: var(--text-2); }
+.hook-add { display: flex; flex-direction: column; gap: 8px; }
+.hook-add-row { display: flex; gap: 8px; }
+.hook-add-row .input { flex: 1; }
+
+/* markdown / resource editors */
+.md-editor { display: flex; flex-direction: column; gap: 8px; }
+.md-editor .editor { min-height: 300px; direction: auto; text-align: start; }
+.editor-preview { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 16px; min-height: 300px; background: var(--surface); overflow: auto; }
+.md-editor-bar { display: flex; align-items: center; gap: 8px; }
+.resource-editor { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.resource-title { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: .85em; }
+.memory-editor { margin-bottom: 20px; display: flex; flex-direction: column; gap: 10px; }
+.btn.ghost.active { background: var(--accent-soft); color: var(--accent); }
+
+/* advanced */
+.advanced-panel { display: flex; flex-direction: column; gap: 6px; }
+.json-status { display: flex; align-items: center; gap: 6px; font-size: .84em; margin-top: 6px; }
+.json-status.ok { color: var(--ok); }
+.json-status.bad { color: var(--danger); }
+.json.effective { max-height: 420px; }
+.file-badge { display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: .8em; }

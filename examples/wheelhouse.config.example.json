@@ -1,0 +1,21 @@
+// Copy to ./wheelhouse.config.json (or ~/.wheelhouse/config.json) and edit.
+// Comments and trailing commas are allowed. Full reference: docs/CONFIGURATION.md
+{
+  "$schema": "../docs/config.schema.json",
+
+  "port": 4173,
+  "defaultProfile": "default",
+
+  // Defaults for new sessions (a choice made in Settings always wins).
+  "defaults": { "model": "default", "effort": "", "permissionMode": "default" },
+
+  // Where "new folder" sessions are created. Defaults to <Documents>/Claude.
+  // "workspaceRoot": "~/Documents/Claude",
+
+  "profiles": {
+    "default": {
+      "label": "Claude Code",
+      "description": "The claude executable found on your PATH."
+    }
+  }
+}

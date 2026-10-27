@@ -1,0 +1,81 @@
+/* Insight panels: context, usage, tasks, activity, checkpoints, find bar */
+.row-inline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.row-inline > .grow { flex: 1; min-width: 0; }
+.small { font-size: .82em; }
+.num { font-variant-numeric: tabular-nums; direction: ltr; text-align: end; }
+.mini-table { width: 100%; border-collapse: collapse; font-size: .82em; }
+.mini-table th, .mini-table td { padding: 5px 8px; text-align: start; border-bottom: 1px solid var(--line); }
+.mini-table th { color: var(--text-3); font-weight: 600; }
+.mini-table td:not(:first-child), .mini-table th:not(:first-child) { text-align: end; font-variant-numeric: tabular-nums; }
+.mini-table tr.err td { color: var(--danger); }
+.mini-table tr.clickable { cursor: pointer; }
+.mini-table tr.clickable:hover td { background: var(--surface-3); }
+
+/* context */
+.ctx-summary { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.ctx-big { display: flex; align-items: baseline; gap: 10px; }
+.ctx-big strong { font-size: 1.8em; font-family: var(--font-display); }
+.ctx-bar { position: relative; display: flex; height: 22px; border-radius: 6px; overflow: hidden; background: var(--surface-3); direction: ltr; }
+.ctx-seg { display: block; height: 100%; flex: none; }
+.ctx-seg.buffer { background-image: repeating-linear-gradient(45deg, rgb(0 0 0 / .18) 0 4px, transparent 4px 8px) !important; }
+.ctx-seg.free { background: transparent !important; }
+.ctx-threshold { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--danger); direction: ltr; }
+.ctx-grid { display: flex; flex-direction: column; gap: 3px; }
+.ctx-grid-row { display: flex; gap: 3px; }
+.ctx-cell { display: block; flex: 1; aspect-ratio: 1; border-radius: 3px; min-width: 0; }
+.ctx-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.ctx-legend-row { display: flex; align-items: center; gap: 8px; font-size: .85em; }
+.ctx-legend-row.deferred { color: var(--text-3); }
+.ctx-legend-row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctx-swatch { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+.ctx-sep { font-size: .72em; text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); margin-top: 6px; }
+.ctx-details { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.ctx-details > summary { display: flex; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer; font-size: .86em; list-style: none; }
+.ctx-details > summary::-webkit-details-marker { display: none; }
+.ctx-details > summary .chev { transition: transform .15s; }
+[dir="rtl"] .ctx-details > summary .chev { transform: scaleX(-1); }
+.ctx-details[open] > summary .chev { transform: rotate(90deg); }
+.ctx-details-body { padding: 2px 10px 8px; display: flex; flex-direction: column; gap: 2px; max-height: 280px; overflow: auto; }
+.ctx-details .ctx-details { border: 0; }
+.ctx-row { display: flex; align-items: center; gap: 8px; font-size: .82em; padding: 3px 0; text-align: start; width: 100%; }
+.ctx-row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctx-row.clickable:hover { color: var(--accent); }
+.ctx-sub { font-size: .72em; text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); margin-top: 6px; }
+
+/* usage */
+.usage-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+.usage-card { display: flex; flex-direction: column; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.usage-card strong { font-size: 1.1em; direction: ltr; text-align: start; }
+.usage-limit { display: flex; flex-direction: column; gap: 4px; }
+
+/* tasks */
+.task-card { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.task-card.running { border-color: var(--accent); }
+.task-card.failed { border-color: var(--danger); }
+.sub-chat { display: flex; flex-direction: column; height: min(66vh, 620px); position: relative; margin: -18px; }
+.sub-modal .modal-body { padding: 18px; }
+
+/* activity */
+.act-list, .raw-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.act-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: var(--radius-sm); font-size: .83em; cursor: pointer; }
+.act-row:hover { background: var(--surface-3); }
+.act-row.warn { color: var(--warn); } .act-row.error { color: var(--danger); }
+.act-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.act-seq { font-size: .78em; font-family: var(--font-mono); direction: ltr; }
+.raw-list details summary { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: .8em; padding: 3px 4px; }
+.raw-list pre.json { max-height: 260px; }
+.stderr { max-height: 60vh; white-space: pre-wrap; }
+
+/* checkpoints */
+.cp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.cp-item { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.cp-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .9em; max-height: 4.6em; overflow: hidden; }
+.cp-files .chip-row { padding-top: 6px; }
+
+/* find bar */
+.find-bar { position: absolute; z-index: 20; top: 10px; inset-inline-end: 18px; display: flex; align-items: center; gap: 4px; padding: 5px 8px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: var(--shadow-md); }
+.find-bar .input { width: 220px; min-height: 30px; border: 0; background: transparent; }
+.find-bar .input:focus { outline: none; }
+.find-count { font-size: .78em; min-width: 54px; text-align: center; direction: ltr; }
+mark.find-hit { background: rgb(240 185 90 / .45); color: inherit; border-radius: 2px; padding: 0; }
+mark.find-hit.current { background: var(--accent); color: var(--accent-ink); }

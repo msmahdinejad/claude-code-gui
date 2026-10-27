@@ -1,0 +1,54 @@
+name: Bug report
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. For security problems please use the private advisory form instead (see SECURITY.md).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what happened instead? Screenshots help (mention the language/direction and theme if it is a layout issue).
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. …
+        2. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Wheelhouse version
+      description: Output of `wheelhouse --version` or the About page.
+    validations:
+      required: true
+  - type: input
+    id: claude
+    attributes:
+      label: Claude Code version
+      description: Output of `claude --version`, or the Settings → Connection test result.
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Windows, macOS, Linux]
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser / window mode
+      placeholder: Chrome 130, standalone window (--app)
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / console output
+      description: Server terminal output and browser console errors. Remove tokens, keys and private paths first.
+      render: shell

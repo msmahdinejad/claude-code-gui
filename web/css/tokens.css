@@ -1,0 +1,128 @@
+/* Design tokens: Claude-Desktop-like warm palette, light + dark. */
+@font-face { font-family: "Vazirmatn"; src: url("/fonts/Vazirmatn-Regular.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Vazirmatn"; src: url("/fonts/Vazirmatn-Medium.woff2") format("woff2"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "Vazirmatn"; src: url("/fonts/Vazirmatn-SemiBold.woff2") format("woff2"); font-weight: 600; font-display: swap; }
+@font-face { font-family: "Vazirmatn"; src: url("/fonts/Vazirmatn-Bold.woff2") format("woff2"); font-weight: 700; font-display: swap; }
+
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #faf9f5;
+  --bg-sunken: #f3f1ea;
+  --surface: #ffffff;
+  --surface-2: #f6f4ee;
+  --surface-3: #ece9df;
+  --sidebar: #f0eee6;
+  --line: #e2ded0;
+  --line-strong: #cfcab9;
+  --text: #1f1e1d;
+  --text-2: #55534d;
+  --text-3: #85827a;
+  --accent: #c96442;
+  --accent-hover: #b5573a;
+  --accent-soft: rgb(201 100 66 / 0.12);
+  --accent-ink: #ffffff;
+  --ok: #2f7d4f;
+  --ok-soft: rgb(47 125 79 / 0.12);
+  --warn: #a8620a;
+  --warn-soft: rgb(168 98 10 / 0.12);
+  --danger: #b3261e;
+  --danger-soft: rgb(179 38 30 / 0.1);
+  --info: #2d6cb5;
+  --info-soft: rgb(45 108 181 / 0.1);
+  --user-bubble: #ece9de;
+  --code-bg: #f4f2ea;
+  --code-text: #2b2a27;
+  --diff-add: rgb(47 125 79 / 0.14);
+  --diff-del: rgb(179 38 30 / 0.12);
+  --shadow-sm: 0 1px 2px rgb(31 30 29 / 0.06);
+  --shadow-md: 0 8px 28px rgb(31 30 29 / 0.12);
+  --shadow-lg: 0 18px 60px rgb(31 30 29 / 0.18);
+  --scrim: rgb(31 30 29 / 0.38);
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+  --font: Vazirmatn, "IRANSansX", "Segoe UI", system-ui, -apple-system, Tahoma, sans-serif;
+  --font-display: Vazirmatn, "Iowan Old Style", Georgia, "Times New Roman", serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --sidebar-w: 288px;
+  --inspector-w: 420px;
+  --chat-w: 800px;
+  --topbar-h: 52px;
+}
+
+/* The dark palette is declared twice (media query + explicit attribute); keep in sync. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #262624;
+    --bg-sunken: #1f1e1d;
+    --surface: #30302e;
+    --surface-2: #2b2b29;
+    --surface-3: #3a3a37;
+    --sidebar: #1f1e1d;
+    --line: #3d3d39;
+    --line-strong: #55554f;
+    --text: #faf9f5;
+    --text-2: #c2c0b5;
+    --text-3: #8f8d84;
+    --accent: #d97757;
+    --accent-hover: #e48b6d;
+    --accent-soft: rgb(217 119 87 / 0.16);
+    --accent-ink: #1f120c;
+    --ok: #6cc88f;
+    --ok-soft: rgb(108 200 143 / 0.16);
+    --warn: #f0b95a;
+    --warn-soft: rgb(240 185 90 / 0.16);
+    --danger: #ff8a7a;
+    --danger-soft: rgb(255 138 122 / 0.14);
+    --info: #7fb3ee;
+    --info-soft: rgb(127 179 238 / 0.14);
+    --user-bubble: #3a3a37;
+    --code-bg: #1d1c1b;
+    --code-text: #e8e6dc;
+    --diff-add: rgb(108 200 143 / 0.16);
+    --diff-del: rgb(255 138 122 / 0.16);
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
+    --shadow-md: 0 8px 28px rgb(0 0 0 / 0.4);
+    --shadow-lg: 0 18px 60px rgb(0 0 0 / 0.55);
+    --scrim: rgb(0 0 0 / 0.55);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #262624;
+  --bg-sunken: #1f1e1d;
+  --surface: #30302e;
+  --surface-2: #2b2b29;
+  --surface-3: #3a3a37;
+  --sidebar: #1f1e1d;
+  --line: #3d3d39;
+  --line-strong: #55554f;
+  --text: #faf9f5;
+  --text-2: #c2c0b5;
+  --text-3: #8f8d84;
+  --accent: #d97757;
+  --accent-hover: #e48b6d;
+  --accent-soft: rgb(217 119 87 / 0.16);
+  --accent-ink: #1f120c;
+  --ok: #6cc88f;
+  --ok-soft: rgb(108 200 143 / 0.16);
+  --warn: #f0b95a;
+  --warn-soft: rgb(240 185 90 / 0.16);
+  --danger: #ff8a7a;
+  --danger-soft: rgb(255 138 122 / 0.14);
+  --info: #7fb3ee;
+  --info-soft: rgb(127 179 238 / 0.14);
+  --user-bubble: #3a3a37;
+  --code-bg: #1d1c1b;
+  --code-text: #e8e6dc;
+  --diff-add: rgb(108 200 143 / 0.16);
+  --diff-del: rgb(255 138 122 / 0.16);
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-md: 0 8px 28px rgb(0 0 0 / 0.4);
+  --shadow-lg: 0 18px 60px rgb(0 0 0 / 0.55);
+  --scrim: rgb(0 0 0 / 0.55);
+}

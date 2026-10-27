@@ -1,0 +1,11 @@
+// Plain Anthropic API key instead of a claude.ai login.
+{
+  "$schema": "../docs/config.schema.json",
+  "defaultProfile": "api",
+  "profiles": {
+    "api": {
+      "label": "Anthropic API",
+      "env": { "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}" }
+    }
+  }
+}

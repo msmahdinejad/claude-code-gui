@@ -1,0 +1,18 @@
+// An LLM gateway (LiteLLM, a corporate proxy, ...) in front of Claude Code.
+// Secrets stay in your environment: ${VAR} is expanded from the environment Wheelhouse starts with.
+{
+  "$schema": "../docs/config.schema.json",
+  "defaultProfile": "gateway",
+  "profiles": {
+    "gateway": {
+      "label": "Company gateway",
+      "command": "claude",
+      "configDir": "~/.claude-gateway", // keeps this profile's sessions and settings separate
+      "env": {
+        "ANTHROPIC_BASE_URL": "https://llm-gateway.example.com",
+        "ANTHROPIC_CUSTOM_HEADERS": "X-Api-Key: ${GATEWAY_KEY}"
+      },
+      "proxyBypass": ["llm-gateway.example.com"] // skip HTTPS_PROXY for this host
+    }
+  }
+}

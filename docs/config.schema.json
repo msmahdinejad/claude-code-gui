@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/msmahdinejad/wheelhouse/blob/main/docs/config.schema.json",
+  "title": "Wheelhouse configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "port": { "type": "integer", "minimum": 1, "maximum": 65535, "default": 4173, "description": "Port to listen on (loopback only)." },
+    "defaultCwd": { "type": "string", "description": "Working directory used when none is chosen. Defaults to your home directory." },
+    "dataDir": { "type": "string", "description": "Where Wheelhouse keeps its own state (pins, recent projects). Default ~/.wheelhouse." },
+    "workspaceRoot": { "type": "string", "description": "Parent folder for \"new folder\" sessions. Default <Documents>/Claude." },
+    "systemPromptAppend": { "type": "string", "description": "Text appended to Claude Code's system prompt for every session. Empty string disables it." },
+    "defaultProfile": { "type": "string", "description": "Profile used at startup (must exist in \"profiles\")." },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Defaults for new sessions. A value chosen in Settings always wins.",
+      "properties": {
+        "model": { "type": "string", "description": "A model alias (sonnet, opus, haiku) or full model id; \"default\" lets Claude Code decide." },
+        "effort": { "enum": ["", "low", "medium", "high", "xhigh", "max"] },
+        "permissionMode": { "enum": ["default", "acceptEdits", "plan", "auto", "dontAsk"] }
+      }
+    },
+    "profiles": {
+      "type": "object",
+      "description": "Named connections: which Claude Code executable to run and with which environment.",
+      "additionalProperties": { "$ref": "#/definitions/profile" }
+    }
+  },
+  "definitions": {
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "label": { "type": "string", "description": "Name shown in Settings." },
+        "description": { "type": "string" },
+        "command": { "type": "string", "description": "Executable: an absolute path or a name on PATH. Empty uses `claude` from PATH, or the binary bundled with the SDK." },
+        "cli": { "type": "string", "description": "Command name shown in \"copy resume command\" (default: command or claude)." },
+        "configDir": { "type": "string", "description": "Sets CLAUDE_CONFIG_DIR: where this profile's sessions and settings live." },
+        "env": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Environment variables for the process. ${VAR} and ${VAR:-fallback} are expanded from Wheelhouse's own environment." },
+        "unset": { "type": "array", "items": { "type": "string" }, "description": "Environment variables to remove for this profile." },
+        "proxyBypass": { "type": "array", "items": { "type": "string" }, "description": "Hosts appended to NO_PROXY for this profile." }
+      }
+    }
+  }
+}

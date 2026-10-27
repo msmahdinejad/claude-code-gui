@@ -1,0 +1,66 @@
+/* Shared styles for inspector panels and the settings dialog. Feature panels may add
+   their own css/panel-*.css (listed in features.js) for anything specific. */
+.panel { padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+.panel-head { display: flex; align-items: center; gap: 8px; }
+.panel-head h3 { margin: 0; font-size: .95em; flex: 1; }
+.panel-section { display: flex; flex-direction: column; gap: 8px; }
+.panel-section > h4 { margin: 0; font-size: .75em; text-transform: uppercase; letter-spacing: .05em; color: var(--text-3); }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: .86em; }
+.kv dt { color: var(--text-3); } .kv dd { margin: 0; overflow-wrap: anywhere; }
+.list-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.list-row .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.list-row .grow span.muted { font-size: .8em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-row.clickable { cursor: pointer; text-align: start; width: 100%; }
+.list-row.clickable:hover { border-color: var(--accent); }
+.progress { height: 8px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
+.progress > i { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
+.progress > i.warn { background: var(--warn); } .progress > i.danger { background: var(--danger); }
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; }
+.seg button { padding: 5px 12px; font-size: .85em; color: var(--text-2); border-inline-end: 1px solid var(--line); }
+.seg button:last-child { border-inline-end: 0; }
+.seg button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.tabs-inline { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.tabs-inline button { padding: 6px 12px; font-size: .86em; color: var(--text-2); border-bottom: 2px solid transparent; }
+.tabs-inline button.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.editor { font-family: var(--font-mono); font-size: .85em; line-height: 1.55; min-height: 280px; direction: ltr; text-align: left; }
+
+/* Settings dialog */
+.settings { display: flex; height: min(720px, calc(100vh - 80px)); }
+.settings-nav { flex: 0 0 210px; border-inline-end: 1px solid var(--line); padding: 10px 8px; overflow: auto; background: var(--surface-2); display: flex; flex-direction: column; gap: 2px; }
+.settings-nav button { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: var(--radius-sm); font-size: .9em; text-align: start; color: var(--text-2); }
+.settings-nav button:hover { background: var(--surface-3); }
+.settings-nav button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.settings-main { flex: 1; min-width: 0; overflow: auto; padding: 20px 24px 32px; }
+.settings-main h2 { margin: 0 0 4px; font-size: 1.15em; }
+.settings-main .lead { margin: 0 0 18px; color: var(--text-3); font-size: .9em; }
+.settings-main .group { margin-bottom: 22px; }
+.settings-main .group > h3 { font-size: .8em; text-transform: uppercase; letter-spacing: .05em; color: var(--text-3); margin: 0 0 8px; }
+.setting-row { display: flex; align-items: center; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.setting-row .grow { flex: 1; min-width: 0; }
+.setting-row .grow small { display: block; color: var(--text-3); }
+.setting-row select, .setting-row .input { width: auto; min-width: 180px; max-width: 260px; }
+@media (max-width: 700px) { .settings { flex-direction: column; height: auto; } .settings-nav { flex-direction: row; flex: none; overflow-x: auto; border-inline-end: 0; border-bottom: 1px solid var(--line); } }
+
+/* Palette */
+.palette-modal { margin-top: -12vh; }
+.palette-modal .modal-body { padding: 0; }
+.pal-input { border: 0 !important; border-bottom: 1px solid var(--line) !important; border-radius: 0 !important; min-height: 50px; padding-inline: 18px; outline: 0 !important; font-size: 1.05em; background: transparent; }
+.pal-list { max-height: min(60vh, 460px); overflow: auto; padding: 6px; }
+.pal-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px 12px; border-radius: var(--radius-sm); text-align: start; }
+.pal-row.active { background: var(--accent-soft); }
+.pal-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pal-hint { color: var(--text-3); font-size: .78em; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Folder picker */
+.fp-bar { display: flex; gap: 8px; margin-bottom: 10px; }
+.fp-recent-title { font-size: .75em; color: var(--text-3); margin: 4px 0; }
+.fp-recents { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.fp-list { border: 1px solid var(--line); border-radius: var(--radius); max-height: 320px; overflow: auto; }
+.fp-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 12px; text-align: start; border-bottom: 1px solid var(--line); }
+.fp-row:last-child { border-bottom: 0; }
+.fp-row:hover { background: var(--surface-3); }
+.fp-empty { padding: 12px; }
+
+/* Welcome overlay inside the chat pane */
+.chat > .welcome { position: absolute; inset: 0 0 auto 0; padding: 0 16px; margin: 8vh auto 0; pointer-events: none; }
+.chat > .welcome > * { pointer-events: auto; }

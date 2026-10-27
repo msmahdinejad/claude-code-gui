@@ -1,0 +1,12 @@
+node_modules/
+*.log
+*.err
+.DS_Store
+Thumbs.db
+.env
+.env.*
+wheelhouse.config.json
+*.wheelhouse-backup
+/tmp/
+/coverage/
+/docs/images/_raw/

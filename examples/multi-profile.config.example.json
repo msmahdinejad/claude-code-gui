@@ -1,0 +1,15 @@
+// Several installations side by side; switch between them in Settings -> Connection.
+{
+  "$schema": "../docs/config.schema.json",
+  "defaultProfile": "stable",
+  "profiles": {
+    "stable": { "label": "Stable", "command": "claude" },
+    "wrapper": {
+      "label": "My wrapper script",
+      "description": "Any executable that behaves like the claude CLI.",
+      "command": "C:\tools\my-claude.exe", // absolute path, or a name on PATH
+      "cli": "my-claude",                     // shown in 'copy resume command'
+      "unset": ["ANTHROPIC_API_KEY"]          // variables to remove for this profile
+    }
+  }
+}

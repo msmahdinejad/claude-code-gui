@@ -1,0 +1,24 @@
+// Claude Code through Amazon Bedrock or Google Vertex AI. See Claude Code's documentation for the
+// variables each provider needs; anything you can export in a shell can go in "env".
+{
+  "$schema": "../docs/config.schema.json",
+  "defaultProfile": "bedrock",
+  "profiles": {
+    "bedrock": {
+      "label": "Amazon Bedrock",
+      "env": {
+        "CLAUDE_CODE_USE_BEDROCK": "1",
+        "AWS_REGION": "us-east-1",
+        "AWS_PROFILE": "${AWS_PROFILE:-default}"
+      }
+    },
+    "vertex": {
+      "label": "Google Vertex AI",
+      "env": {
+        "CLAUDE_CODE_USE_VERTEX": "1",
+        "CLOUD_ML_REGION": "us-east5",
+        "ANTHROPIC_VERTEX_PROJECT_ID": "${GOOGLE_CLOUD_PROJECT}"
+      }
+    }
+  }
+}
