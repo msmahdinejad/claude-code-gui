@@ -121,7 +121,7 @@ export function loadConfig({ argv = process.argv.slice(2), env = process.env, ho
     try {
       raw = parseJsonc(readFileSync(file, "utf8"));
     } catch (error) {
-      throw new Error(`Cannot read config ${file}: ${error.message}`);
+      throw new Error(`Cannot read config ${file}: ${error.message}`, { cause: error });
     }
   }
   const rawProfiles = raw.profiles && Object.keys(raw.profiles).length ? raw.profiles : { default: { label: "Claude Code", ...(env.CLAUDE_BIN ? { command: env.CLAUDE_BIN } : {}) } };

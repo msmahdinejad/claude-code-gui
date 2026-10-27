@@ -21,7 +21,7 @@ function describe(entry) {
   let category = "other";
   for (const [name, keys] of Object.entries(CATEGORY)) if (keys.includes(key)) category = name;
   let iconName = "circle";
-  let text = "";
+  let text;
   let level = "";
   switch (key) {
     case "hook_started":
