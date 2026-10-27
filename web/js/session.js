@@ -224,6 +224,7 @@ export async function sendMessage(text, images = [], { priority } = {}) {
   try {
     await api.send(id, { text, images, priority, cwd: conv?.cwd || app.currentCwd, meta: conv?.meta });
     reattachIfGone(id); // the server only now created the session object we were waiting for
+    if (!app.sessions.some((session) => session.id === id)) refreshSessionsSoon(); // a brand-new session: list it now
   } catch (error) {
     toast(errorMessage(error), "error");
     throw error;
@@ -397,6 +398,7 @@ export function wireGlobalEvents() {
     app.live.set(summary.id, summary);
     reattachIfGone(summary.id);
     syncStreams(); // a session that starts working gets a stream; one that went idle gives its connection back
+    if (summary.state !== "closed" && !app.sessions.some((session) => session.id === summary.id)) refreshSessionsSoon();
     const conv = app.convs.get(summary.id);
     if (conv) {
       // A "new folder" session gets its folder when the first message is sent.

@@ -12,6 +12,12 @@ and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, mi
   *Extra high* and *Max*, each with a short description.
 
 ### Fixed
+- The app icon showed as a blank page on Windows shortcuts and the taskbar: the ICO stored its small sizes as PNG, which
+  the Windows shell does not read (browsers do). The ICO now uses bitmap images for the small sizes, and shortcuts,
+  *Start with Windows* and the taskbar button reference a copy in the data folder (`~/.wheelhouse/wheelhouse.ico`),
+  because the shell also refuses icons stored in some protected folders.
+- A session started from a new chat appeared in the sidebar only after a manual refresh. It is now listed as soon as its
+  first message is sent, named from that message until the model title arrives.
 - Settings (and every other page) stuck on "Loading…" in a window that had opened several conversations: each open event
   stream holds one of the browser's 6 connections per site, so the page ran out of connections. Only the current
   conversation and sessions that are working keep a stream (at most 3); the others are closed and re-attached from

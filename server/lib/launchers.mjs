@@ -2,7 +2,7 @@
 //   launch.vbs     starts this server (and opens the app window) - used by a taskbar button pinned from the app window
 //   autostart.vbs  starts this server with the tray icon at sign-in - used by "Start with Windows"
 // Both re-run exactly this server: same node, same flags, same working directory.
-import { mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,5 +21,12 @@ export function windowAssets(config) {
   };
   const launchVbs = write("launch.vbs", config.tray.enabled ? ["--tray", "--app"] : ["--app"]);
   const autostartVbs = write("autostart.vbs", ["--tray"]);
-  return { iconFile: resolve(HERE, "..", "..", "web", "favicon.ico"), launchVbs, autostartVbs };
+  // Shortcuts and the taskbar point at a copy in the data folder: stable even if the project folder moves, and the
+  // Windows shell does not draw icons from some protected folders (e.g. sandboxed project directories).
+  const iconFile = join(config.dataDir, "wheelhouse.ico");
+  try {
+    const source = resolve(HERE, "..", "..", "web", "wheelhouse.ico");
+    if (!existsSync(iconFile) || statSync(iconFile).size !== statSync(source).size) copyFileSync(source, iconFile);
+  } catch { /* keep going without the icon */ }
+  return { iconFile, launchVbs, autostartVbs };
 }

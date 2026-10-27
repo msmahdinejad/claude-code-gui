@@ -66,7 +66,7 @@ public static class WhNative {
 "@
 }
 
-$script:WhAppId = "Wheelhouse.App"
+$script:WhAppId = "Wheelhouse.Window"
 
 # Browser processes that belong to the app profile (the main process has no --type= argument).
 function Get-AppProcess([string]$ProfileDir) {

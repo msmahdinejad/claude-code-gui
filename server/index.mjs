@@ -375,7 +375,10 @@ route("GET", "/api/sessions", async ({ query }) => {
     if (seen.has(live.id) || (dir && live.cwd !== dir)) continue;
     if (!live.alive && !live.buffer.length && !live.meta.title) continue; // untouched draft
     list.push({
-      id: live.id, title: live.meta.title || "", cwd: live.cwd, lastModified: live.lastActive, state: live.state,
+      id: live.id,
+      // not in the transcript list yet: name it from the first message until the model title arrives
+      title: live.meta.title || deriveTitle(live.buffer.find((entry) => entry.msg.type === "wh_user_message")?.msg.text),
+      cwd: live.cwd, lastModified: live.lastActive, state: live.state,
       pending: live.pending.size, pinned: false, archived: false, draft: true,
     });
   }
@@ -438,7 +441,10 @@ route("POST", "/api/sessions/([^/]+)/messages", async ({ params, body }) => {
   if (body.cwd && !target.alive && !target.meta.scratchFolder) target.cwd = resolve(body.cwd);
   store.touchProject(target.cwd);
   if (body.meta) Object.assign(target.meta, body.meta);
-  return target.sendUser({ text: body.text || "", images: body.images || [], priority: body.priority, uuid: body.uuid });
+  const firstMessage = !target.alive;
+  const result = await target.sendUser({ text: body.text || "", images: body.images || [], priority: body.priority, uuid: body.uuid });
+  if (firstMessage) manager.emit("sessions.changed"); // a new session now exists: every open window should list it
+  return result;
 });
 
 route("POST", "/api/sessions/([^/]+)/start", async ({ params, body }) => {
