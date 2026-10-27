@@ -3,6 +3,20 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, minor versions may change the config format).
 
+## [Unreleased]
+
+### Added
+- **Reply**: a Reply button on every message, and a floating Reply button when you select text in the conversation;
+  both put the text into the composer as a Markdown quote.
+- Reasoning effort is now a button in the composer bar (it was a read-only badge) with a menu of all levels, including
+  *Extra high* and *Max*, each with a short description.
+
+### Fixed
+- Settings (and every other page) stuck on "Loading…" in a window that had opened several conversations: each open event
+  stream holds one of the browser's 6 connections per site, so the page ran out of connections. Only the current
+  conversation and sessions that are working keep a stream (at most 3); the others are closed and re-attached from
+  where they stopped when needed.
+
 ## [0.2.2] - 2026-10-27
 
 ### Fixed

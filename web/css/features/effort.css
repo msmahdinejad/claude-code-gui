@@ -1,0 +1,3 @@
+/* Reasoning-effort button in the composer bar. */
+.effort-btn.set { color: var(--accent); background: var(--accent-soft); }
+.effort-btn svg { flex: none; }

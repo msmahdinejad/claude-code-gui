@@ -7,7 +7,8 @@ import { api } from "../core/api.js";
 import { commands as registeredCommands } from "../core/registry.js";
 import * as session from "../session.js";
 import { isBusy } from "../chat/reducer.js";
-import { openModelPicker, openModePicker, modelLabel, modeInfo, EFFORTS } from "./pickers.js";
+import { toQuote } from "../chat/quote.js";
+import { openModelPicker, openModePicker, openEffortPicker, currentModelInfo, modelLabel, modeInfo, EFFORTS } from "./pickers.js";
 import { makeCtx } from "../ctx.js";
 
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
@@ -19,12 +20,12 @@ export function mountComposer(host) {
   const sendBtn = h("button.send-btn", { type: "button", title: t("Send"), "aria-label": t("Send"), onclick: () => submit() }, icon("arrow-up", 17));
   const modelBtn = h("button.cmp-chip-btn", { type: "button", onclick: (event) => openModelPicker(event.currentTarget) });
   const modeBtn = h("button.cmp-chip-btn", { type: "button", onclick: (event) => openModePicker(event.currentTarget) });
-  const effortBadge = h("span.badge.accent.hidden");
+  const effortBtn = h("button.cmp-chip-btn.effort-btn", { type: "button", title: t("Reasoning effort"), onclick: (event) => openEffortPicker(event.currentTarget) });
   const plusBtn = ibtn("plus", t("Add"), (event) => plusMenu(event.currentTarget));
   const micBtn = ibtn("mic", t("Dictate"), () => toggleDictation(), { cls: "mic" });
   const fileInput = h("input", { type: "file", accept: "image/*", multiple: true, class: "hidden", onchange: () => { addFiles([...fileInput.files]); fileInput.value = ""; } });
   const hint = h("div.footer-hint");
-  const root = h("div.composer", attachments, queueBox, textarea, h("div.cmp-bar", plusBtn, modeBtn, h("span.grow"), effortBadge, modelBtn, micBtn, sendBtn), fileInput);
+  const root = h("div.composer", attachments, queueBox, textarea, h("div.cmp-bar", plusBtn, modeBtn, h("span.grow"), effortBtn, modelBtn, micBtn, sendBtn), fileInput);
   host.replaceChildren(root, hint);
 
   let images = []; // {mediaType, data, name}
@@ -60,8 +61,9 @@ export function mountComposer(host) {
     const mode = modeInfo(state.permissionMode);
     modeBtn.className = `cmp-chip-btn mode-${state.permissionMode}`;
     modeBtn.replaceChildren(icon(mode.icon, 13), h("span", mode.title()));
-    effortBadge.classList.toggle("hidden", !state.effort);
-    effortBadge.textContent = state.effort ? (EFFORTS.find((effort) => effort.id === state.effort)?.title() || state.effort) : "";
+    effortBtn.classList.toggle("hidden", currentModelInfo(state.model)?.supportsEffort === false);
+    effortBtn.classList.toggle("set", Boolean(state.effort));
+    effortBtn.replaceChildren(icon("gauge", 13), h("span", state.effort ? (EFFORTS.find((effort) => effort.id === state.effort)?.title() || state.effort) : t("Auto")));
     const hasContent = Boolean(textarea.value.trim() || images.length);
     sendBtn.classList.toggle("stop", busy && !hasContent);
     sendBtn.replaceChildren(icon(busy && !hasContent ? "stop" : "arrow-up", busy && !hasContent ? 15 : 17));
@@ -378,6 +380,19 @@ export function mountComposer(host) {
     autosize();
     saveDraft();
     textarea.focus();
+    refresh();
+  });
+  // Reply: add a quote of a message (or of the selected text) above what is being typed.
+  bus.on("composer:quote", (text) => {
+    const quote = toQuote(text);
+    if (!quote) return;
+    const before = textarea.value.replace(/\s+$/, "");
+    textarea.value = `${before ? `${before}\n\n` : ""}${quote}\n\n`;
+    autosize();
+    saveDraft();
+    textarea.focus();
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    textarea.scrollTop = textarea.scrollHeight;
     refresh();
   });
   bus.on("composer:focus", () => textarea.focus());

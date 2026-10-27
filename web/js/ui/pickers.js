@@ -23,6 +23,41 @@ export const EFFORTS = [
   { id: "max", title: () => t("Max") },
 ];
 
+const EFFORT_HINTS = {
+  "": () => t("The model decides how much to think"),
+  low: () => t("Fastest, least reasoning"),
+  medium: () => t("Balanced speed and depth"),
+  high: () => t("Thorough reasoning"),
+  xhigh: () => t("Deeper reasoning for hard problems"),
+  max: () => t("Maximum reasoning: slowest and most expensive"),
+};
+
+/** Effort levels the current model supports (all of them when the catalog does not say). */
+export function effortLevelsFor(modelId) {
+  const levels = currentModelInfo(modelId)?.supportedEffortLevels;
+  return EFFORTS.filter((effort) => !effort.id || !levels || levels.includes(effort.id));
+}
+
+/** Small menu for the reasoning effort, opened from the composer. */
+export function openEffortPicker(anchor) {
+  const state = session.effective();
+  const body = h("div.picker");
+  body.append(h("div.picker-section", t("Reasoning effort")));
+  for (const effort of effortLevelsFor(state.model)) {
+    const active = (state.effort || "") === effort.id;
+    body.append(
+      h(
+        "button.picker-item",
+        { type: "button", onclick: () => { session.setEffort(effort.id); pop.close(); } },
+        h("span.pi-main", h("span.pi-title", effort.title()), h("span.pi-desc", EFFORT_HINTS[effort.id]())),
+        active ? icon("check", 15, "check") : null,
+      ),
+    );
+  }
+  const pop = popover(anchor, body, { placement: "top-end", width: 300, className: "model-popover" });
+  return pop;
+}
+
 /** Model descriptions come from the CLI in English ("Opus 5.5 · Best for ..."); translate known phrases per segment. */
 export function describeModel(text) {
   return String(text || "")

@@ -140,6 +140,7 @@ export class ChatView {
     if (item.text) bubble.append(h("div.user-text", item.text));
     const actions = h(
       "div.msg-actions",
+      item.text ? h("button.mini", { type: "button", title: t("Reply"), onclick: () => bus.emit("composer:quote", item.text) }, icon("reply", 13, "mirror-rtl")) : null,
       h("button.mini", { type: "button", title: t("Copy"), onclick: () => copyText(item.text || "") }, icon("copy", 13)),
       item.uuid
         ? h("button.mini", { type: "button", title: t("More"), onclick: (event) => this.userMenu(event.currentTarget, item) }, icon("more-horizontal", 13))
@@ -228,6 +229,7 @@ export class ChatView {
         parts.push(
           h(
             "div.msg-actions.assistant",
+            h("button.mini", { type: "button", title: t("Reply to this message"), onclick: () => bus.emit("composer:quote", text) }, icon("reply", 13, "mirror-rtl"), h("span", t("Reply"))),
             h("button.mini", { type: "button", title: t("Copy"), onclick: () => copyText(text) }, icon("copy", 13), h("span", t("Copy"))),
             item.model ? h("span.meta", item.model) : null,
             item.usage?.output_tokens ? h("span.meta", `${formatTokens(item.usage.output_tokens)} ${t("tokens out")}`) : null,

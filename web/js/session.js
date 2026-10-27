@@ -83,6 +83,29 @@ function reattachIfGone(id) {
   if (conv && goneStreams.has(id)) wireStream(id, conv, 0);
 }
 
+// A browser allows only 6 simultaneous connections per site, and every open stream holds one for good. A page that
+// followed every conversation it had ever opened (plus the global stream) left nothing for ordinary requests, so
+// Settings and other pages hung on "Loading…". Only the current conversation and sessions that are working keep a
+// stream (at most MAX_SESSION_STREAMS); the others are closed and re-attached from where they stopped when needed.
+const MAX_SESSION_STREAMS = 3;
+const streamPosition = new Map(); // id -> last seq seen before its stream was closed to free a connection
+const LIVE_STATES = ["starting", "running", "requires_action"];
+
+function syncStreams() {
+  const wanted = [...app.convs.keys()]
+    .filter((id) => id === app.currentId || LIVE_STATES.includes(app.live.get(id)?.state))
+    .sort((a, b) => Number(b === app.currentId) - Number(a === app.currentId))
+    .slice(0, MAX_SESSION_STREAMS);
+  const keep = new Set(wanted);
+  for (const [id, stream] of streams) {
+    if (keep.has(id)) continue;
+    streamPosition.set(id, stream.seq);
+    stream.close();
+    streams.delete(id);
+  }
+  for (const id of keep) if (!streams.has(id)) wireStream(id, app.convs.get(id), streamPosition.get(id) ?? 0);
+}
+
 /** Rebuild a cached conversation from the server (history + live buffer) and re-attach its stream. */
 export async function reloadConversation(id) {
   const old = app.convs.get(id);
@@ -122,7 +145,9 @@ export async function loadConversation(id, cwd) {
     conv.state = "closed";
   }
   app.convs.set(id, conv);
+  streamPosition.delete(id);
   wireStream(id, conv, snap.seq || 0);
+  syncStreams();
   return conv;
 }
 
@@ -143,6 +168,7 @@ export async function openSession(id, { cwd } = {}) {
   }
   app.currentCwd = conv.cwd || cwd || app.currentCwd;
   location.hash = `#/s/${id}`;
+  syncStreams(); // the conversation we now look at gets (back) its stream, replaying what it missed
   bus.emit("current");
   ensureCatalog(app.currentCwd);
   return conv;
@@ -184,6 +210,7 @@ export async function newSession({ cwd, meta = {} } = {}) {
   wireStream(created.id, conv, 0);
   app.currentId = created.id;
   app.currentCwd = cwd;
+  syncStreams();
   location.hash = `#/s/${created.id}`;
   bus.emit("current");
   ensureCatalog(cwd);
@@ -304,6 +331,8 @@ export async function deleteSession(id) {
   await api.deleteSession(id, sessionCwd(id));
   streams.get(id)?.close();
   streams.delete(id);
+  streamPosition.delete(id);
+  goneStreams.delete(id);
   app.convs.delete(id);
   app.live.delete(id);
   await refreshSessions();
@@ -367,6 +396,7 @@ export function wireGlobalEvents() {
   onServerEvent("session.state", (summary) => {
     app.live.set(summary.id, summary);
     reattachIfGone(summary.id);
+    syncStreams(); // a session that starts working gets a stream; one that went idle gives its connection back
     const conv = app.convs.get(summary.id);
     if (conv) {
       // A "new folder" session gets its folder when the first message is sent.
