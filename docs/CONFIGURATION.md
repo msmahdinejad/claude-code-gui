@@ -31,6 +31,7 @@ Precedence, highest first: command-line flags → environment variables → conf
 | `workspaceRoot` | `<Documents>/Claude` | Parent of the per-session folders created by **New folder** (also in Settings → General; `WHEELHOUSE_WORKSPACE_ROOT`). |
 | `systemPromptAppend` | a short "reply in the user's language, keep code LTR" note | Appended to Claude Code's system prompt. `""` disables (`WHEELHOUSE_SYSTEM_PROMPT`). |
 | `defaults.model` / `defaults.effort` / `defaults.permissionMode` | `default` / `""` / `default` | Starting values for new sessions. Anything the user picks in Settings → Model & behavior wins. |
+| `autoTitle` | `true` | After the first reply, a short model-written title (one small Haiku request through your profile) becomes the session's name; until then a shortened first prompt is shown. `false` keeps only the shortened prompt (`WHEELHOUSE_AUTO_TITLE=0`). Renaming a session always wins. |
 | `tray.enabled` / `tray.hotkey` / `tray.browserHotkey` | `false` / `Ctrl+Alt+W` / `Ctrl+Alt+Shift+W` | Tray icon and global shortcuts, see [Tray icon and shortcuts](#tray-icon-and-shortcuts). Also `--tray`. |
 | `defaultProfile` | first profile | Profile used at startup. The one chosen in Settings → Connection is remembered. |
 | `profiles` | one profile running `claude` | See below. |

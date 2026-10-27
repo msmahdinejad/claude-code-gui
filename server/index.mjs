@@ -28,6 +28,16 @@ import * as fsgit from "./lib/fs-git.mjs";
 import * as cfiles from "./lib/claude-files.mjs";
 import { openUi } from "./lib/ui-launch.mjs";
 import { startTray } from "./lib/tray.mjs";
+import { deriveTitle } from "./lib/title.mjs";
+import { generateTitle } from "./lib/titler.mjs";
+import { windowAssets } from "./lib/launchers.mjs";
+
+/** How to open the UI: default browser, or the standalone window (with its own icon and taskbar identity on Windows). */
+const uiOptions = () => ({
+  appWindow: config.appWindow,
+  profileDir: join(config.dataDir, "app-profile"),
+  assets: process.platform === "win32" && config.appWindow ? windowAssets(config) : null,
+});
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = join(HERE, "..", "web");
@@ -171,7 +181,8 @@ function normalizeSessionInfo(info) {
   const live = manager.get(info.sessionId);
   return {
     id: info.sessionId,
-    title: info.customTitle || meta.title || info.summary || info.firstPrompt || "",
+    // info.summary is the *last prompt* when there is no custom title, so it is not used here.
+    title: info.customTitle || meta.title || deriveTitle(info.firstPrompt),
     summary: info.summary,
     firstPrompt: info.firstPrompt,
     cwd: info.cwd,
@@ -603,6 +614,22 @@ const globalClients = new Set();
 function broadcast(event, data) {
   for (const res of globalClients) sseWrite(res, event, data);
 }
+// After the first reply, name the session with a short model-written title (unless it already has a name).
+manager.on("session.first-result", async (live) => {
+  if (!config.autoTitle) return;
+  try {
+    const info = await getSessionInfo(live.id); // by id only: a cwd that is spelled differently (8.3 names) finds nothing
+    if (!info || info.customTitle || store.sessionMeta(live.id).title || !info.firstPrompt) return;
+    const title = await generateTitle(config, { cwd: live.cwd, prompt: info.firstPrompt });
+    if (!title) return;
+    await renameSession(live.id, title).catch(() => store.patchSessionMeta(live.id, { title }));
+    live.meta.title = title;
+    manager.emit("sessions.changed");
+  } catch (error) {
+    console.warn(`[wheelhouse] could not title session ${live.id}: ${error.message}`); // the short local title stays
+  }
+});
+
 manager.on("session.state", (summary) => broadcast("session.state", summary));
 manager.on("session.attention", (payload) => broadcast("session.attention", payload));
 manager.on("sessions.changed", () => broadcast("sessions.changed", {}));
@@ -690,7 +717,7 @@ server.on("error", async (error) => {
     const running = await fetch(`http://${HOST}:${PORT}/api/health`).then((response) => response.ok).catch(() => false);
     if (running) {
       console.log(`Wheelhouse is already running at http://${HOST}:${PORT}; opening it.`);
-      openUi(`http://${HOST}:${PORT}`, { appWindow: config.appWindow, profileDir: join(config.dataDir, "app-profile") });
+      openUi(`http://${HOST}:${PORT}`, uiOptions());
       setTimeout(() => process.exit(0), 3000); // let the helper start first
       return;
     }
@@ -706,7 +733,7 @@ server.listen(PORT, HOST, () => {
   console.log(`  claude:      ${config.claudeBin || "bundled with the SDK"}`);
   console.log(`  default cwd: ${config.defaultCwd}`);
   if (config.tray.enabled) startTray({ config, url }); // the tray watches this process and cleans up after it
-  if (config.open || config.appWindow) openUi(url, { appWindow: config.appWindow, profileDir: join(config.dataDir, "app-profile") });
+  if (config.open || config.appWindow) openUi(url, uiOptions());
 });
 
 async function shutdown() {

@@ -31,7 +31,7 @@ export function findBrowser() {
  * `appWindow` = standalone window with its own browser profile in `profileDir`; otherwise the default browser.
  * On Windows an already open app window is brought to the front instead of opening a second one.
  */
-export function openUi(url, { appWindow = false, profileDir = "" } = {}) {
+export function openUi(url, { appWindow = false, profileDir = "", assets = null } = {}) {
   const win = process.platform === "win32";
   const defaultOpen = () => {
     const [cmd, args] = win ? ["cmd", ["/c", "start", "", url]] : process.platform === "darwin" ? ["open", [url]] : ["xdg-open", [url]];
@@ -49,7 +49,11 @@ export function openUi(url, { appWindow = false, profileDir = "" } = {}) {
   const script = join(HERE, "..", "tray", "open-app.ps1");
   const helper = execFile(
     "powershell.exe",
-    ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", script, "-Url", url, "-Browser", bin, "-ProfileDir", profileDir],
+    [
+      "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", script,
+      "-Url", url, "-Browser", bin, "-ProfileDir", profileDir,
+      ...(assets ? ["-IconFile", assets.iconFile, "-LaunchVbs", assets.launchVbs] : []),
+    ],
     { windowsHide: true },
     (error) => { if (error) direct(); },
   );

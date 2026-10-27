@@ -11,6 +11,7 @@
     "dataDir": { "type": "string", "description": "Where Wheelhouse keeps its own state (pins, recent projects). Default ~/.wheelhouse." },
     "workspaceRoot": { "type": "string", "description": "Parent folder for \"new folder\" sessions. Default <Documents>/Claude." },
     "systemPromptAppend": { "type": "string", "description": "Text appended to Claude Code's system prompt for every session. Empty string disables it." },
+    "autoTitle": { "type": "boolean", "description": "Name new sessions with a short model-written title after the first reply (one small extra request). Default true." },
     "tray": {
       "type": "object",
       "description": "System tray icon (Windows). Also enabled with --tray.",

@@ -8,6 +8,8 @@ param(
   [string]$Browser = "",
   [string]$ProfileDir = "",
   [string]$IconPath = "",
+  [string]$IconFile = "",
+  [string]$LaunchVbs = "",
   [string]$Hotkey = "",
   [string]$BrowserHotkey = "",
   [string]$AutostartVbs = "",
@@ -70,7 +72,7 @@ function ConvertTo-Hotkey([string]$text) {
 }
 
 # ---- opening the UI --------------------------------------------------------------------------------------------
-function Open-App { Open-AppWindow $Url $Browser $ProfileDir }
+function Open-App { Open-AppWindow $Url $Browser $ProfileDir $IconFile $LaunchVbs }
 function Open-InBrowser { Start-Process $Url }
 
 # ---- icon ------------------------------------------------------------------------------------------------------
@@ -119,6 +121,7 @@ function Set-Autostart([bool]$on) {
     $link.TargetPath = Join-Path $env:WINDIR "System32\wscript.exe"
     $link.Arguments = "`"$AutostartVbs`""
     $link.Description = "Start $AppName in the notification area"
+    if ($IconFile -and (Test-Path $IconFile)) { $link.IconLocation = "$IconFile,0" }
     $link.Save()
   } elseif (Test-Path $startupLink) {
     Remove-Item $startupLink -Force

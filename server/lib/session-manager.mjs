@@ -229,6 +229,10 @@ export class ClaudeSession extends EventEmitter {
       };
       this.persisted = true;
       if (this.state === "running") this.setState("idle");
+      if (!msg.is_error && !this.titleOffered) {
+        this.titleOffered = true;
+        this.manager.emit("session.first-result", this);
+      }
     } else if (msg.type === "system" && msg.subtype === "status" && msg.permissionMode) {
       if (this.init) this.init.permissionMode = msg.permissionMode;
       this.meta.permissionMode = msg.permissionMode;

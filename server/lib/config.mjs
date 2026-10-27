@@ -144,6 +144,8 @@ export function loadConfig({ argv = process.argv.slice(2), env = process.env, ho
     },
     profiles,
     defaultProfile,
+    // Name new sessions with a short model-written title after the first reply (one small extra request).
+    autoTitle: !["0", "false", "off"].includes(String(env.WHEELHOUSE_AUTO_TITLE ?? raw.autoTitle ?? true).toLowerCase()),
     tray: {
       enabled: Boolean(args.tray) || (raw.tray?.enabled ?? false),
       hotkey: raw.tray?.hotkey ?? "Ctrl+Alt+W",

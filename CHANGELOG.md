@@ -3,6 +3,18 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, minor versions may change the config format).
 
+## [Unreleased]
+
+### Added
+- Proper app icon: PNG/ICO icon set (`web/icons`, `web/favicon.ico`) generated from the logo with `npm run build:icons`.
+- On Windows the app window gets its own taskbar identity and icon instead of being grouped under Chrome; a pinned
+  taskbar button relaunches Wheelhouse. The tray's *Start with Windows* shortcut has the icon too.
+- `autoTitle`: new sessions get a short model-written title after the first reply.
+
+### Fixed
+- Session names no longer show the whole first prompt (or the last prompt): until the model title arrives a shortened
+  first prompt is shown (greetings, links and code blocks dropped).
+
 ## [0.2.0] - 2026-10-27
 
 ### Added

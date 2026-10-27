@@ -1,10 +1,11 @@
 // System tray icon with open / quit menu and global shortcuts. Windows only for now: the tray itself is a small
 // PowerShell host (server/tray/tray.ps1) so no native dependency is needed.
 import { spawn } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { findBrowser } from "./ui-launch.mjs";
+import { windowAssets } from "./launchers.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -15,15 +16,7 @@ export function startTray({ config, url, serverPid = process.pid }) {
     return;
   }
   mkdirSync(config.dataDir, { recursive: true });
-  const autostartVbs = join(config.dataDir, "autostart.vbs");
-  // Re-runs this exact server (same node, same flags, same working directory) hidden at sign-in.
-  const vbsQuote = (value) => `""${String(value).replaceAll('"', '""')}""`;
-  const argv = [process.execPath, ...process.argv.slice(1).filter((arg) => arg !== "--open" && arg !== "--app")];
-  if (!argv.includes("--tray")) argv.push("--tray");
-  writeFileSync(
-    autostartVbs,
-    `Set shell = CreateObject("WScript.Shell")\r\nshell.CurrentDirectory = "${process.cwd().replaceAll('"', '""')}"\r\nshell.Run "${argv.map(vbsQuote).join(" ")}", 0, False\r\n`,
-  );
+  const assets = windowAssets(config);
   const q = (value) => `"${String(value).replaceAll('"', "")}"`;
   const args = [
     "-NoProfile", "-NonInteractive", "-STA", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass",
@@ -33,9 +26,11 @@ export function startTray({ config, url, serverPid = process.pid }) {
     "-Browser", q(findBrowser()),
     "-ProfileDir", q(join(config.dataDir, "app-profile")),
     "-IconPath", q(resolve(HERE, "..", "tray", "icon.png")),
+    "-IconFile", q(assets.iconFile),
+    "-LaunchVbs", q(assets.launchVbs),
     "-Hotkey", q(config.tray.hotkey),
     "-BrowserHotkey", q(config.tray.browserHotkey),
-    "-AutostartVbs", q(autostartVbs),
+    "-AutostartVbs", q(assets.autostartVbs),
     "-LogPath", q(join(config.dataDir, "tray.log")),
   ];
   if (process.env.WHEELHOUSE_TRAY_SELFTEST) args.push("-SelfTest");

@@ -1,5 +1,6 @@
 // Routes for the insight panels (stderr tail, raw message buffer, project token usage).
 import { listSessions, getSessionMessages } from "@anthropic-ai/claude-agent-sdk";
+import { deriveTitle } from "../title.mjs";
 
 const usageCache = new Map(); // sessionId -> { mtime, usage }
 
@@ -53,7 +54,7 @@ export default function register({ route, manager, HttpError }) {
         usageCache.set(info.sessionId, cached);
       }
       const usage = cached.usage;
-      sessions.push({ id: info.sessionId, title: info.customTitle || info.summary || info.firstPrompt || "", lastModified: info.lastModified, ...usage });
+      sessions.push({ id: info.sessionId, title: info.customTitle || deriveTitle(info.firstPrompt), lastModified: info.lastModified, ...usage });
       for (const key of Object.keys(sum)) sum[key] += usage[key];
     }
     return { sessions, total: sum, scanned: infos.length };

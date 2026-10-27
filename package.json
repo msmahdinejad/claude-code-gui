@@ -45,7 +45,8 @@
     "lint": "eslint .",
     "check": "npm run lint && npm test && npm run i18n:check",
     "i18n:check": "node scripts/extract-i18n.mjs --fail",
-    "build:vendor": "node scripts/build-vendor.mjs"
+    "build:vendor": "node scripts/build-vendor.mjs",
+    "build:icons": "node scripts/build-icons.mjs"
   },
   "engines": {
     "node": ">=20"
