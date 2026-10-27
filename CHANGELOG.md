@@ -3,6 +3,17 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, minor versions may change the config format).
 
+## [0.2.0] - 2026-10-27
+
+### Added
+- Windows tray icon (`--tray` or `tray.enabled`): click to open or focus the app window, menu with *Open*, *Open in browser*,
+  live status (idle / working / waiting), *Start with Windows* and *Quit*; a yellow dot while a session waits for approval.
+- Global shortcuts: `Ctrl+Alt+W` (app window) and `Ctrl+Alt+Shift+W` (browser), configurable with `tray.hotkey` and
+  `tray.browserHotkey`.
+- Full quit: the tray's *Quit* and the new *Quit Wheelhouse* command (palette) stop the server, every Claude Code process and
+  the window. The tray also cleans up after a server that stops on its own.
+- `GET /api/status` and `POST /api/shutdown` (same-origin only).
+
 ## [0.1.1] - 2026-10-27
 
 ### Changed

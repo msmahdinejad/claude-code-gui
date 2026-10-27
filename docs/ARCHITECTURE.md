@@ -27,6 +27,8 @@ server/lib/catalog.mjs      models / commands / agents / MCP / account for a cwd
 server/lib/fs-git.mjs       fs list/read/write, git info/diff/log/actions, @file search
 server/lib/claude-files.mjs settings.json / CLAUDE.md / agents|skills|commands|output-styles files per scope
 server/lib/ui-store.mjs     UI-owned state (pins, per-session meta, prefs, recents) in ~/.wheelhouse
+server/lib/ui-launch.mjs    open the UI in the default browser or a standalone Chrome/Edge window
+server/lib/tray.mjs         starts the Windows tray host (--tray); server/tray/tray.ps1 is the host itself
 server/lib/routes/*.mjs     EXTENSION POINT: server routes per feature (auto-loaded)
 web/index.html              shell
 web/css/*.css               tokens, base, layout, chat, panels, polish (final layer)
@@ -83,6 +85,7 @@ openSettings(id), openInspector(id), runPrompt(text), fillComposer(text) }`.
 `GET /api/sessions/:id/stream` and `GET /api/events` (SSE), `GET /api/fs/{list,read,search,home}`,
 `GET /api/git/{info,diff,log,branches}`, `POST /api/git/action`, `GET|PUT /api/settings`, `GET|PUT /api/claude-md`,
 `GET /api/resources`, `GET|PUT|DELETE /api/resource`, `POST /api/cli` (allow-listed `claude mcp|plugin|auth …`),
+`GET /api/status` (live counts for the tray), `POST /api/shutdown` (stop the server),
 `GET /api/profile`, `POST /api/profile/{test,switch}`, `GET /api/profile/status`, `POST /api/pick-folder`,
 `POST /api/workspaces/new`, `GET /api/features`. Feature modules add more under `server/lib/routes/`.
 

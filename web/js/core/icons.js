@@ -3,6 +3,7 @@ const P = {
   plus: "M12 5v14M5 12h14",
   minus: "M5 12h14",
   x: "M18 6 6 18M6 6l12 12",
+  power: "M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10",
   check: "M20 6 9 17l-5-5",
   "check-circle": "M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4 12 14.01l-3-3",
   "chevron-down": "m6 9 6 6 6-6",

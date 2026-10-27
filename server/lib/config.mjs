@@ -51,7 +51,7 @@ function parseArgs(argv) {
     const [key, inline] = arg.slice(2).split("=");
     const flag = key.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
     if (inline !== undefined) args[flag] = inline;
-    else if (argv[i + 1] && !argv[i + 1].startsWith("--") && !["open", "app", "help", "version"].includes(flag)) args[flag] = argv[++i];
+    else if (argv[i + 1] && !argv[i + 1].startsWith("--") && !["open", "app", "tray", "help", "version"].includes(flag)) args[flag] = argv[++i];
     else args[flag] = true;
   }
   return args;
@@ -144,6 +144,11 @@ export function loadConfig({ argv = process.argv.slice(2), env = process.env, ho
     },
     profiles,
     defaultProfile,
+    tray: {
+      enabled: Boolean(args.tray) || (raw.tray?.enabled ?? false),
+      hotkey: raw.tray?.hotkey ?? "Ctrl+Alt+W",
+      browserHotkey: raw.tray?.browserHotkey ?? "Ctrl+Alt+Shift+W",
+    },
     open: Boolean(args.open),
     appWindow: Boolean(args.app),
     help: Boolean(args.help),

@@ -4,7 +4,6 @@
 import { createServer } from "node:http";
 import { createReadStream } from "node:fs";
 import { execFile, execFileSync } from "node:child_process";
-import { statSync } from "node:fs";
 import { stat, readdir, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { extname, join, resolve, relative, isAbsolute, sep, dirname } from "node:path";
@@ -27,6 +26,8 @@ import { UiStore } from "./lib/ui-store.mjs";
 import { applyProfile, loadConfig, profileSummary, testProfile } from "./lib/config.mjs";
 import * as fsgit from "./lib/fs-git.mjs";
 import * as cfiles from "./lib/claude-files.mjs";
+import { openUi } from "./lib/ui-launch.mjs";
+import { startTray } from "./lib/tray.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = join(HERE, "..", "web");
@@ -46,6 +47,7 @@ Usage: wheelhouse [options]
   --data-dir <dir>  where Wheelhouse keeps its own state (default ~/.wheelhouse)
   --open            open the UI in your browser
   --app             open the UI in a standalone app-style window (Chrome/Edge)
+  --tray            keep a system tray icon with open/quit menu and global shortcuts (Windows)
   --version, --help
 
 Docs: ${PACKAGE.homepage}`);
@@ -190,6 +192,24 @@ const routes = [];
 const route = (method, pattern, handler) => routes.push({ method, pattern: new RegExp(`^${pattern}$`), handler });
 
 route("GET", "/api/health", async () => ({ ok: true, port: PORT, version: 1 }));
+
+// Lightweight live status for the tray icon: how many sessions are running or waiting for the user.
+route("GET", "/api/status", async () => {
+  let live = 0, running = 0, waiting = 0;
+  for (const current of manager.sessions.values()) {
+    if (!current.alive) continue;
+    live += 1;
+    if (current.state === "running") running += 1;
+    if (current.pending.size) waiting += 1;
+  }
+  return { ok: true, version: PACKAGE.version, live, running, waiting };
+});
+
+// Stops the server (and every Claude Code process it started). Same-origin POST only, like every API call.
+route("POST", "/api/shutdown", async () => {
+  setTimeout(shutdown, 100).unref(); // after the response is out; SIGTERM handlers are not delivered on Windows
+  return { ok: true };
+});
 
 /** Where "new folder" sessions live (like Claude Desktop's default location); overridable in Settings. */
 let documentsDir;
@@ -669,38 +689,14 @@ server.on("error", (error) => {
   process.exit(1);
 });
 
-function openUi(url) {
-  const win = process.platform === "win32";
-  const defaultOpen = () => {
-    const [cmd, args] = win ? ["cmd", ["/c", "start", "", url]] : process.platform === "darwin" ? ["open", [url]] : ["xdg-open", [url]];
-    execFile(cmd, args, () => {}).on("error", () => {});
-  };
-  if (config.appWindow) {
-    const browsers = win
-      ? [join(process.env.ProgramFiles || "", "Google", "Chrome", "Application", "chrome.exe"), join(process.env["ProgramFiles(x86)"] || "", "Microsoft", "Edge", "Application", "msedge.exe"), join(process.env.ProgramFiles || "", "Microsoft", "Edge", "Application", "msedge.exe")]
-      : process.platform === "darwin"
-        ? ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
-        : ["google-chrome", "chromium", "chromium-browser", "microsoft-edge"];
-    for (const bin of browsers) {
-      try {
-        if (isAbsolute(bin)) statSync(bin);
-        const child = execFile(bin, [`--app=${url}`, `--user-data-dir=${join(config.dataDir, "app-profile")}`, "--window-size=1320,860"], { windowsHide: false });
-        child.on("error", defaultOpen);
-        child.unref();
-        return;
-      } catch { /* try the next browser */ }
-    }
-  }
-  defaultOpen();
-}
-
 server.listen(PORT, HOST, () => {
   const url = `http://${HOST}:${PORT}`;
   console.log(`Wheelhouse ${PACKAGE.version} is running at ${url}`);
   console.log(`  profile:     ${config.activeProfile}${config.file ? ` (config: ${config.file})` : " (no config file)"}`);
   console.log(`  claude:      ${config.claudeBin || "bundled with the SDK"}`);
   console.log(`  default cwd: ${config.defaultCwd}`);
-  if (config.open || config.appWindow) openUi(url);
+  if (config.tray.enabled) startTray({ config, url }); // the tray watches this process and cleans up after it
+  if (config.open || config.appWindow) openUi(url, { appWindow: config.appWindow, profileDir: join(config.dataDir, "app-profile") });
 });
 
 async function shutdown() {

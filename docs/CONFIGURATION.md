@@ -31,6 +31,7 @@ Precedence, highest first: command-line flags → environment variables → conf
 | `workspaceRoot` | `<Documents>/Claude` | Parent of the per-session folders created by **New folder** (also in Settings → General; `WHEELHOUSE_WORKSPACE_ROOT`). |
 | `systemPromptAppend` | a short "reply in the user's language, keep code LTR" note | Appended to Claude Code's system prompt. `""` disables (`WHEELHOUSE_SYSTEM_PROMPT`). |
 | `defaults.model` / `defaults.effort` / `defaults.permissionMode` | `default` / `""` / `default` | Starting values for new sessions. Anything the user picks in Settings → Model & behavior wins. |
+| `tray.enabled` / `tray.hotkey` / `tray.browserHotkey` | `false` / `Ctrl+Alt+W` / `Ctrl+Alt+Shift+W` | Tray icon and global shortcuts, see [Tray icon and shortcuts](#tray-icon-and-shortcuts). Also `--tray`. |
 | `defaultProfile` | first profile | Profile used at startup. The one chosen in Settings → Connection is remembered. |
 | `profiles` | one profile running `claude` | See below. |
 
@@ -91,7 +92,28 @@ Test a profile without starting a session: Settings → Connection → *Test* ru
 ## Command line
 
 ```
-wheelhouse [--port <n>] [--config <file>] [--cwd <dir>] [--data-dir <dir>] [--open] [--app]
+wheelhouse [--port <n>] [--config <file>] [--cwd <dir>] [--data-dir <dir>] [--open] [--app] [--tray]
 ```
 
-`--open` opens your default browser; `--app` opens a standalone window using Chrome or Edge (no tabs or address bar).
+`--open` opens your default browser; `--app` opens a standalone window using Chrome or Edge (no tabs or address bar);
+`--tray` keeps a tray icon (see below).
+
+## Tray icon and shortcuts
+
+On Windows, `--tray` (or `"tray": { "enabled": true }`) adds a notification-area icon, like the desktop app has:
+
+- **Click** the icon to open the app window. If it is already open, it is brought to the front instead of opening another.
+- **Right-click** for the menu: *Open*, *Open in browser*, a live status line (idle / working / waiting for you), *Start with
+  Windows*, and *Quit*.
+- **Quit** closes the window, stops the server and every running Claude Code process, and removes the icon. If the server
+  stops by itself (Ctrl+C, *Quit Wheelhouse* in the command palette), the tray cleans up the window and removes itself.
+- The icon gets a yellow dot while a session waits for your approval.
+- **Global shortcuts**: `Ctrl+Alt+W` opens or focuses the app window, `Ctrl+Alt+Shift+W` opens the UI in your default
+  browser. Change them with `tray.hotkey` / `tray.browserHotkey` (modifiers `Ctrl`, `Alt`, `Shift`, `Win` plus a key such as
+  `W`, `Space`, `F9`). If another program already owns a shortcut, the menu shows it as *unavailable*.
+- **Start with Windows** adds a hidden shortcut to your Startup folder that runs the same command (same flags and working
+  directory, without `--open`/`--app`). Untick it to remove it.
+
+Windows hides new tray icons in the overflow flyout; drag the icon onto the taskbar to keep it visible. The tray host is a
+small PowerShell script (`server/tray/tray.ps1`), so there is nothing extra to install. Its log is `tray.log` in the data
+directory. macOS and Linux have no tray yet; `--app` and the command palette's *Quit Wheelhouse* work everywhere.

@@ -84,6 +84,34 @@ test("filesystem routes list real folders and fail cleanly on missing files", as
   assert.ok((await missing.json()).error);
 });
 
+test("status reports live session counts for the tray", async () => {
+  const status = await (await api("/api/status")).json();
+  assert.deepEqual({ ok: status.ok, live: status.live, running: status.running, waiting: status.waiting }, { ok: true, live: 0, running: 0, waiting: 0 });
+});
+
+test("shutdown is refused for foreign or missing origins and stops the server for the real one", async () => {
+  const foreign = await fetch(`${base}/api/shutdown`, { method: "POST", headers: { origin: "https://evil.example" } });
+  assert.equal(foreign.status, 403);
+  const bare = await fetch(`${base}/api/shutdown`, { method: "POST" });
+  assert.equal(bare.status, 403);
+  assert.equal((await api("/api/health")).status, 200);
+
+  const port = await freePort();
+  const own = `http://127.0.0.1:${port}`;
+  const second = spawn(process.execPath, [join(root, "server", "index.mjs"), "--port", String(port), "--data-dir", join(home, "data-2"), "--cwd", home], {
+    env: { ...process.env, HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: join(home, "claude") },
+    stdio: "ignore",
+  });
+  const exited = new Promise((resolve) => second.on("exit", resolve));
+  for (let i = 0; i < 80; i += 1) {
+    try { if ((await fetch(`${own}/api/health`)).ok) break; } catch { /* not up yet */ }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  const stop = await fetch(`${own}/api/shutdown`, { method: "POST", headers: { origin: own } });
+  assert.equal(stop.status, 200);
+  await Promise.race([exited, new Promise((_, reject) => setTimeout(() => { second.kill(); reject(new Error("server did not stop")); }, 8000))]);
+});
+
 test("unknown API endpoints return 404 JSON", async () => {
   const response = await api("/api/nope");
   assert.equal(response.status, 404);

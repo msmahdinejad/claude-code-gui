@@ -49,6 +49,11 @@ works. It never talks to the model API itself and never alters a request.
 - Sessions grouped by project, searchable, pinnable, renameable, resumable. **New folder** sessions get their own folder
   automatically, like the desktop app.
 
+**Like a desktop app**
+- Standalone window (`--app`), plus on Windows a **tray icon** (`--tray`) with open / open in browser / start with Windows /
+  quit, a status dot when Claude waits for you, and global shortcuts (`Ctrl+Alt+W` app window, `Ctrl+Alt+Shift+W`
+  browser). Details in [docs/CONFIGURATION.md](docs/CONFIGURATION.md#tray-icon-and-shortcuts).
+
 **Workspace panels**
 - **Changes**: stage, commit, branches, history, unified/split diffs. **Files**: tree, preview, edit, `@`-reference.
   **Terminal**: streamed command runner. **Context**, **Usage**, **Tasks**, **Activity**, **Checkpoints**.
@@ -76,7 +81,8 @@ npm install
 npm start -- --open        # or: npm start -- --app   (standalone window via Chrome/Edge)
 ```
 
-Then open <http://127.0.0.1:4173>. Useful flags: `--port`, `--config`, `--cwd`, `--data-dir` (see `wheelhouse --help`).
+Then open <http://127.0.0.1:4173>. Useful flags: `--port`, `--config`, `--cwd`, `--data-dir`, `--tray` (see `wheelhouse --help`).
+To quit completely, use the tray icon's *Quit*, the command palette's *Quit Wheelhouse*, or `Ctrl+C` in the terminal.
 
 To run it from anywhere, `npm link` inside the checkout puts a `wheelhouse` command on your `PATH`.
 

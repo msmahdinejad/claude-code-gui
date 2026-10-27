@@ -11,6 +11,16 @@
     "dataDir": { "type": "string", "description": "Where Wheelhouse keeps its own state (pins, recent projects). Default ~/.wheelhouse." },
     "workspaceRoot": { "type": "string", "description": "Parent folder for \"new folder\" sessions. Default <Documents>/Claude." },
     "systemPromptAppend": { "type": "string", "description": "Text appended to Claude Code's system prompt for every session. Empty string disables it." },
+    "tray": {
+      "type": "object",
+      "description": "System tray icon (Windows). Also enabled with --tray.",
+      "properties": {
+        "enabled": { "type": "boolean", "description": "Keep a tray icon with an open/quit menu. Default false." },
+        "hotkey": { "type": "string", "description": "Global shortcut that opens (or focuses) the app window. Default \"Ctrl+Alt+W\"." },
+        "browserHotkey": { "type": "string", "description": "Global shortcut that opens the UI in your default browser. Default \"Ctrl+Alt+Shift+W\"." }
+      },
+      "additionalProperties": false
+    },
     "defaultProfile": { "type": "string", "description": "Profile used at startup (must exist in \"profiles\")." },
     "defaults": {
       "type": "object",

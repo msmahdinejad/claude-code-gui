@@ -33,6 +33,19 @@ test("loadConfig without a file yields one default profile", () => {
   assert.equal(config.defaults.model, "default");
 });
 
+test("tray is off by default, switched on by --tray or the file, and shortcuts are configurable", () => {
+  const dir = tmp();
+  const off = loadConfig({ argv: [], env: {}, home: dir, cwd: dir });
+  assert.equal(off.tray.enabled, false);
+  assert.equal(off.tray.hotkey, "Ctrl+Alt+W");
+  assert.equal(off.tray.browserHotkey, "Ctrl+Alt+Shift+W");
+  assert.equal(loadConfig({ argv: ["--tray"], env: {}, home: dir, cwd: dir }).tray.enabled, true);
+  const file = join(dir, "c.json");
+  writeFileSync(file, JSON.stringify({ tray: { enabled: true, hotkey: "Ctrl+Shift+Space" } }));
+  const on = loadConfig({ argv: ["--config", file], env: {}, home: dir, cwd: dir });
+  assert.deepEqual(on.tray, { enabled: true, hotkey: "Ctrl+Shift+Space", browserHotkey: "Ctrl+Alt+Shift+W" });
+});
+
 test("loadConfig reads a file, applies flags and normalizes profiles", () => {
   const dir = tmp();
   const file = join(dir, "wheelhouse.config.json");
