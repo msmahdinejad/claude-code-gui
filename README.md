@@ -1,4 +1,4 @@
-<h1 align="center">Wheelhouse</h1>
+<h1 align="center">Claude Code GUI<br><sub>Wheelhouse</sub></h1>
 
 <p align="center">
   <strong>A desktop-class graphical interface for Claude Code.</strong><br>
@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/msmahdinejad/wheelhouse/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/msmahdinejad/wheelhouse/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/msmahdinejad/claude-code-gui/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/msmahdinejad/claude-code-gui/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
   <img alt="Node 20+" src="https://img.shields.io/badge/node-%E2%89%A520-339933.svg">
   <a href="CONTRIBUTING.md"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg"></a>
@@ -70,8 +70,8 @@ Requirements: **Node.js 20+** and Claude Code available on your machine (install
 a profile). If no `claude` executable is found, the binary bundled with the Agent SDK is used.
 
 ```bash
-git clone https://github.com/msmahdinejad/wheelhouse.git
-cd wheelhouse
+git clone https://github.com/msmahdinejad/claude-code-gui.git
+cd claude-code-gui
 npm install
 npm start -- --open        # or: npm start -- --app   (standalone window via Chrome/Edge)
 ```

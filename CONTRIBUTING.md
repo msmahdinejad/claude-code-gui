@@ -5,7 +5,7 @@ Thanks for helping! Bug reports, translations, docs, and features are all welcom
 ## Quick start
 
 ```bash
-git clone https://github.com/msmahdinejad/wheelhouse.git && cd wheelhouse
+git clone https://github.com/msmahdinejad/claude-code-gui.git && cd claude-code-gui
 npm install
 npm run dev          # server with restart on change; the web app only needs a browser reload
 npm run check        # eslint + unit tests + translation coverage (what CI runs)

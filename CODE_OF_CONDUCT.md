@@ -35,7 +35,7 @@ commits, code, issues, and other contributions that are not aligned with this Co
 reasons for moderation decisions when appropriate.
 
 Report abuse privately by opening a
-[private security advisory](https://github.com/msmahdinejad/wheelhouse/security/advisories/new) on this repository.
+[private security advisory](https://github.com/msmahdinejad/claude-code-gui/security/advisories/new) on this repository.
 All complaints will be reviewed and investigated promptly and fairly, and maintainers will respect the privacy and
 security of the reporter.
 

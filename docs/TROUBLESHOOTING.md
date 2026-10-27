@@ -31,5 +31,5 @@ The UI language is chosen in Settings → General. Persian uses the bundled Vazi
 screenshot and say which language/theme you used when you open an issue.
 
 ## Still stuck?
-Open an [issue](https://github.com/msmahdinejad/wheelhouse/issues/new/choose) with the Wheelhouse and Claude Code versions,
+Open an [issue](https://github.com/msmahdinejad/claude-code-gui/issues/new/choose) with the Wheelhouse and Claude Code versions,
 your OS, and the server terminal output (remove tokens and private paths first).

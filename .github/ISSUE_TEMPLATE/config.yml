@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Report a security vulnerability
-    url: https://github.com/msmahdinejad/wheelhouse/security/advisories/new
+    url: https://github.com/msmahdinejad/claude-code-gui/security/advisories/new
     about: Please report vulnerabilities privately, not as a public issue.
   - name: Questions and ideas
-    url: https://github.com/msmahdinejad/wheelhouse/discussions
+    url: https://github.com/msmahdinejad/claude-code-gui/discussions
     about: Ask a question or share an idea in Discussions.

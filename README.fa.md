@@ -51,8 +51,8 @@ Wheelhouse هیچ‌وقت خودش با API مدل صحبت نمی‌کند و 
 پیدا نشود، فایل اجرایی همراه SDK استفاده می‌شود.
 
 ```bash
-git clone https://github.com/msmahdinejad/wheelhouse.git
-cd wheelhouse
+git clone https://github.com/msmahdinejad/claude-code-gui.git
+cd claude-code-gui
 npm install
 npm start -- --open        # یا: npm start -- --app  (پنجرهٔ مستقل با Chrome/Edge)
 ```

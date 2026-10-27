@@ -6,7 +6,7 @@ import { t } from "../core/i18n.js";
 import { registerSettingsSection } from "../core/registry.js";
 import { api } from "../core/api.js";
 
-const DOCS = "https://github.com/msmahdinejad/wheelhouse/blob/main/docs/CONFIGURATION.md";
+const DOCS = "https://github.com/msmahdinejad/claude-code-gui/blob/main/docs/CONFIGURATION.md";
 
 function resultLine(result) {
   if (!result) return null;

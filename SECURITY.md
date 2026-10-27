@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please **do not open a public issue**. Use GitHub's private vulnerability reporting:
-<https://github.com/msmahdinejad/wheelhouse/security/advisories/new>. Include steps to reproduce, the version and your
+<https://github.com/msmahdinejad/claude-code-gui/security/advisories/new>. Include steps to reproduce, the version and your
 operating system. Fixes are released as patch versions and credited in the changelog unless you prefer otherwise.
 
 Supported versions: the latest `0.x` release.
