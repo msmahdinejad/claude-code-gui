@@ -84,6 +84,42 @@ test("filesystem routes list real folders and fail cleanly on missing files", as
   assert.ok((await missing.json()).error);
 });
 
+/** First chunk(s) of an SSE endpoint, until `until` matches or the timeout passes. */
+async function sseHead(path, until, init = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3000);
+  let text = "";
+  try {
+    const response = await fetch(base + path, { ...init, signal: controller.signal });
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    while (!until.test(text)) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+    }
+  } catch { /* aborted: return what arrived */ }
+  clearTimeout(timer);
+  controller.abort();
+  return text;
+}
+
+test("global events start with a boot id so a page can tell the server restarted", async () => {
+  const head = await sseHead("/api/events", /event: hello[\s\S]*\n\n/);
+  assert.match(head, /event: hello/);
+  assert.match(head, /"boot":"[0-9a-f-]{36}"/);
+});
+
+test("a session stream tells a client with a stale position to start over", async () => {
+  const created = await (await api("/api/sessions", { method: "POST", body: JSON.stringify({ cwd: home }) })).json();
+  const stale = await sseHead(`/api/sessions/${created.id}/stream?after=500`, /event: reset/);
+  assert.match(stale, /event: reset/);
+  const fresh = await sseHead(`/api/sessions/${created.id}/stream?after=0`, /event: reset/);
+  assert.doesNotMatch(fresh, /event: reset/);
+  const unknown = await sseHead("/api/sessions/00000000-0000-0000-0000-000000000000/stream?after=0", /event: gone/);
+  assert.match(unknown, /event: gone/);
+});
+
 test("status reports live session counts for the tray", async () => {
   const status = await (await api("/api/status")).json();
   assert.deepEqual({ ok: status.ok, live: status.live, running: status.running, waiting: status.waiting }, { ok: true, live: 0, running: 0, waiting: 0 });

@@ -3,6 +3,14 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, minor versions may change the config format).
 
+## [Unreleased]
+
+### Fixed
+- A page that stays open while the server restarts no longer shows only "Working…" for sessions that were open before
+  (new messages were dropped because the page was still following the old server's message numbers, and a session the
+  new server did not know yet was never re-attached). The page now detects a restart (boot id in the event stream),
+  reloads its open conversations and re-attaches sessions as soon as the server starts them.
+
 ## [0.2.1] - 2026-10-27
 
 ### Added

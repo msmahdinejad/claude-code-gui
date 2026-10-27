@@ -6,6 +6,7 @@ import { createReadStream } from "node:fs";
 import { execFile, execFileSync } from "node:child_process";
 import { stat, readdir, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
+import { randomUUID } from "node:crypto";
 import { extname, join, resolve, relative, isAbsolute, sep, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { readFileSync } from "node:fs";
@@ -634,9 +635,12 @@ manager.on("session.state", (summary) => broadcast("session.state", summary));
 manager.on("session.attention", (payload) => broadcast("session.attention", payload));
 manager.on("sessions.changed", () => broadcast("sessions.changed", {}));
 
+// Changes on every server start: a page that sees a different id knows its cached conversations are stale.
+const BOOT_ID = randomUUID();
+
 function handleGlobalEvents(req, res) {
   sseHeaders(res);
-  sseWrite(res, "hello", { live: manager.list() });
+  sseWrite(res, "hello", { boot: BOOT_ID, live: manager.list() });
   globalClients.add(res);
   req.on("close", () => globalClients.delete(res));
 }
@@ -647,6 +651,13 @@ function handleSessionStream(req, res, id, after) {
   if (!target) {
     sseWrite(res, "gone", {});
     return res.end();
+  }
+  // A client that already saw a higher seq than this session has produced talks to a different (restarted) server
+  // object: tell it to start over, otherwise it would drop every new message as "already seen".
+  const seen = Math.max(after, Number(req.headers["last-event-id"] || 0));
+  if (seen > target.seq) {
+    sseWrite(res, "reset", { seq: target.seq });
+    after = 0;
   }
   for (const entry of target.eventsAfter(after)) sseWrite(res, "msg", entry, entry.seq);
   const listener = (entry) => sseWrite(res, "msg", entry, entry.seq);

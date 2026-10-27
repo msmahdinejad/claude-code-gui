@@ -81,7 +81,7 @@ export function connectGlobalEvents(onStatus) {
 }
 
 /** Per-session stream; reconnects with the last seen seq so nothing is lost. */
-export function openSessionStream(id, after, { onMessage, onGone, onState }) {
+export function openSessionStream(id, after, { onMessage, onGone, onReset, onState }) {
   let lastSeq = after || 0;
   let source;
   let closed = false;
@@ -96,7 +96,14 @@ export function openSessionStream(id, after, { onMessage, onGone, onState }) {
     });
     source.addEventListener("gone", () => {
       source.close();
+      closed = true;
       onGone?.();
+    });
+    // The server no longer has the session we were following (it restarted): our position means nothing now.
+    source.addEventListener("reset", () => {
+      source.close();
+      closed = true;
+      onReset?.();
     });
     source.onopen = () => onState?.(true);
     source.onerror = () => {

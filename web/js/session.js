@@ -58,17 +58,43 @@ export async function ensureCatalog(cwd = app.currentCwd || app.config?.defaultC
   return app.catalog;
 }
 
+// Sessions the server did not know when we asked (e.g. after a restart): their stream ended with "gone". They are
+// re-attached as soon as the server starts them (global "session.state" event or our own send), otherwise their
+// messages would never show up and the conversation would just say "Working…".
+const goneStreams = new Set();
+
 function wireStream(id, conv, after) {
   streams.get(id)?.close();
+  goneStreams.delete(id);
   const stream = openSessionStream(id, after, {
     onMessage: (entry) => {
       applyMessage(conv, entry.msg, { live: true });
       bus.emit("conv:update", id);
       if (entry.msg.type === "result" || entry.msg.type === "wh_closed") refreshSessionsSoon();
     },
-    onGone: () => {},
+    onGone: () => goneStreams.add(id),
+    onReset: () => reloadConversation(id),
   });
   streams.set(id, stream);
+}
+
+function reattachIfGone(id) {
+  const conv = app.convs.get(id);
+  if (conv && goneStreams.has(id)) wireStream(id, conv, 0);
+}
+
+/** Rebuild a cached conversation from the server (history + live buffer) and re-attach its stream. */
+export async function reloadConversation(id) {
+  const old = app.convs.get(id);
+  if (!old) return;
+  try {
+    await loadConversation(id, old.cwd);
+  } catch {
+    return; // keep what we have; the next event or reload tries again
+  }
+  if (app.currentId === id) bus.emit("current");
+  bus.emit("conv:update", id);
+  bus.emit("live", id);
 }
 
 let refreshTimer;
@@ -170,6 +196,7 @@ export async function sendMessage(text, images = [], { priority } = {}) {
   const conv = app.convs.get(id);
   try {
     await api.send(id, { text, images, priority, cwd: conv?.cwd || app.currentCwd, meta: conv?.meta });
+    reattachIfGone(id); // the server only now created the session object we were waiting for
   } catch (error) {
     toast(errorMessage(error), "error");
     throw error;
@@ -326,8 +353,20 @@ export function lastUserUuid() {
 
 // ---- global events ---------------------------------------------------------------
 export function wireGlobalEvents() {
+  // A new boot id means the server restarted while this page stayed open: every cached conversation is stale.
+  onServerEvent("hello", (data) => {
+    if (!data?.boot) return;
+    const restarted = app.boot && app.boot !== data.boot;
+    app.boot = data.boot;
+    if (!restarted) return;
+    app.live.clear();
+    for (const summary of data.live || []) app.live.set(summary.id, summary);
+    for (const id of [...app.convs.keys()]) reloadConversation(id);
+    refreshSessionsSoon();
+  });
   onServerEvent("session.state", (summary) => {
     app.live.set(summary.id, summary);
+    reattachIfGone(summary.id);
     const conv = app.convs.get(summary.id);
     if (conv) {
       // A "new folder" session gets its folder when the first message is sent.
