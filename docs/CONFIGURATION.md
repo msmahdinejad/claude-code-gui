@@ -96,7 +96,8 @@ wheelhouse [--port <n>] [--config <file>] [--cwd <dir>] [--data-dir <dir>] [--op
 ```
 
 `--open` opens your default browser; `--app` opens a standalone window using Chrome or Edge (no tabs or address bar);
-`--tray` keeps a tray icon (see below).
+`--tray` keeps a tray icon (see below). Running `wheelhouse --app` (or `--open`) while an instance is already up on that
+port does not start a second server: it brings the existing window forward (on Windows) or opens the UI again.
 
 ## Tray icon and shortcuts
 

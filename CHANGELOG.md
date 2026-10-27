@@ -13,6 +13,8 @@ and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, mi
 - Full quit: the tray's *Quit* and the new *Quit Wheelhouse* command (palette) stop the server, every Claude Code process and
   the window. The tray also cleans up after a server that stops on its own.
 - `GET /api/status` and `POST /api/shutdown` (same-origin only).
+- Running `wheelhouse --app` or `--open` while an instance is already up brings the existing window forward instead of
+  failing with "port in use".
 
 ## [0.1.1] - 2026-10-27
 

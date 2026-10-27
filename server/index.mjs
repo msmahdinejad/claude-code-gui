@@ -684,7 +684,17 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.on("error", (error) => {
+server.on("error", async (error) => {
+  if (error.code === "EADDRINUSE" && (config.open || config.appWindow)) {
+    // Running `wheelhouse --app` again while it is already up just brings the window forward.
+    const running = await fetch(`http://${HOST}:${PORT}/api/health`).then((response) => response.ok).catch(() => false);
+    if (running) {
+      console.log(`Wheelhouse is already running at http://${HOST}:${PORT}; opening it.`);
+      openUi(`http://${HOST}:${PORT}`, { appWindow: config.appWindow, profileDir: join(config.dataDir, "app-profile") });
+      setTimeout(() => process.exit(0), 3000); // let the helper start first
+      return;
+    }
+  }
   console.error(error.code === "EADDRINUSE" ? `Port ${PORT} is already in use. Start with --port <n> or stop the other instance.` : `Server error: ${error.message}`);
   process.exit(1);
 });

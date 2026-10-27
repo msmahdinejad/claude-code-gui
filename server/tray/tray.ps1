@@ -45,15 +45,10 @@ public class WhHotkeyWindow : NativeWindow, IDisposable {
   }
   public void Dispose() { UnregisterHotKey(Handle, 1); UnregisterHotKey(Handle, 2); DestroyHandle(); }
 }
-
-public static class WhNative {
-  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
-  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
-  [DllImport("user32.dll")] public static extern bool DestroyIcon(IntPtr hIcon);
-}
 "@
 }
+
+. (Join-Path $PSScriptRoot "app-window.ps1")  # Get-AppProcess, Show-AppWindow, Open-AppWindow, WhNative
 
 # ---- shortcuts -------------------------------------------------------------------------------------------------
 function ConvertTo-Hotkey([string]$text) {
@@ -75,30 +70,7 @@ function ConvertTo-Hotkey([string]$text) {
 }
 
 # ---- opening the UI --------------------------------------------------------------------------------------------
-function Get-AppProcess {
-  if (-not $ProfileDir) { return @() }
-  $list = Get-CimInstance Win32_Process -Filter "Name = 'chrome.exe' OR Name = 'msedge.exe'" -ErrorAction SilentlyContinue
-  return @($list | Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($ProfileDir, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
-}
-
-function Show-AppWindow {
-  foreach ($candidate in (Get-AppProcess | Where-Object { $_.CommandLine -notmatch "--type=" })) {
-    $proc = Get-Process -Id $candidate.ProcessId -ErrorAction SilentlyContinue
-    if ($proc -and $proc.MainWindowHandle -ne [IntPtr]::Zero) {
-      if ([WhNative]::IsIconic($proc.MainWindowHandle)) { [void][WhNative]::ShowWindow($proc.MainWindowHandle, 9) }
-      [void][WhNative]::SetForegroundWindow($proc.MainWindowHandle)
-      return $true
-    }
-  }
-  return $false
-}
-
-function Open-App {
-  if (Show-AppWindow) { return }
-  if ($Browser) { Start-Process -FilePath $Browser -ArgumentList @("--app=$Url", "--user-data-dir=`"$ProfileDir`"", "--window-size=1320,860") }
-  else { Start-Process $Url }
-}
-
+function Open-App { Open-AppWindow $Url $Browser $ProfileDir }
 function Open-InBrowser { Start-Process $Url }
 
 # ---- icon ------------------------------------------------------------------------------------------------------
@@ -167,7 +139,7 @@ function Exit-Tray {
 function Quit-All {
   Log "quitting"
   $notify.Visible = $false
-  foreach ($candidate in (Get-AppProcess | Where-Object { $_.CommandLine -notmatch "--type=" })) {
+  foreach ($candidate in (Get-AppProcess $ProfileDir | Where-Object { $_.CommandLine -notmatch "--type=" })) {
     $proc = Get-Process -Id $candidate.ProcessId -ErrorAction SilentlyContinue
     if ($proc) { [void]$proc.CloseMainWindow() }
   }
@@ -177,12 +149,12 @@ function Quit-All {
     if (Get-Process -Id $ServerPid -ErrorAction SilentlyContinue) { & taskkill.exe /PID $ServerPid /T /F | Out-Null }
   }
   for ($i = 0; $i -lt 8; $i++) {
-    $left = @(Get-AppProcess)
+    $left = @(Get-AppProcess $ProfileDir)
     if (-not $left.Count) { break }
     foreach ($candidate in $left) { Stop-Process -Id $candidate.ProcessId -Force -ErrorAction SilentlyContinue }
     Start-Sleep -Milliseconds 400
   }
-  Log "browser processes left: $(@(Get-AppProcess).Count)"
+  Log "browser processes left: $(@(Get-AppProcess $ProfileDir).Count)"
   Exit-Tray
 }
 
