@@ -18,7 +18,7 @@
 </p>
 
 Wheelhouse puts a polished interface on top of the **real Claude Code executable**. Nothing is re-implemented: it drives
-the official [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview), so sessions, settings, skills, MCP
+the official [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview), so sessions, settings, skills, MCP
 servers, plugins, hooks and permissions behave exactly as they do in the terminal, and your existing configuration just
 works. It never talks to the model API itself and never alters a request.
 

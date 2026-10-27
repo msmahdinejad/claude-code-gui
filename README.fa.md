@@ -14,7 +14,7 @@
 </p>
 
 Wheelhouse یک رابط گرافیکی روی **خود فایل اجرایی Claude Code** است و چیزی را از نو پیاده‌سازی نمی‌کند. با
-[Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) کار می‌کند؛ پس سشن‌ها، تنظیمات، skillها، سرورهای
+[Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview) کار می‌کند؛ پس سشن‌ها، تنظیمات، skillها، سرورهای
 MCP، افزونه‌ها، hookها و دسترسی‌ها دقیقاً مثل ترمینال رفتار می‌کنند و پیکربندی فعلی شما همان‌طور که هست کار می‌کند.
 Wheelhouse هیچ‌وقت خودش با API مدل صحبت نمی‌کند و هیچ درخواستی را دست‌کاری نمی‌کند.
 

@@ -323,7 +323,7 @@ route("GET", "/api/config", async () => ({
   prefs: store.data.prefs,
   recentProjects: store.data.recentProjects,
   proxy: { http: Boolean(process.env.HTTPS_PROXY || process.env.HTTP_PROXY), noProxy: process.env.NO_PROXY || "" },
-  gateway: process.env.ANTHROPIC_BASE_URL || null,
+  gateway: /^https?:\/\/api\.anthropic\.com\/?$/.test(process.env.ANTHROPIC_BASE_URL || "") ? null : process.env.ANTHROPIC_BASE_URL || null,
 }));
 
 route("PUT", "/api/prefs", async ({ body }) => {
