@@ -3,7 +3,7 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, minor versions may change the config format).
 
-## [Unreleased]
+## [0.2.3] - 2026-10-28
 
 ### Added
 - **Reply**: a Reply button on every message, and a floating Reply button when you select text in the conversation;

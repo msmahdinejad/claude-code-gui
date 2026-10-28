@@ -1,6 +1,6 @@
 {
   "name": "claude-code-gui",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "A desktop-class graphical interface for Claude Code. Runs locally in your browser or as a standalone window, with first-class right-to-left support.",
   "type": "module",
   "license": "MIT",
