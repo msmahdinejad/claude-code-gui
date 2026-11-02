@@ -10,6 +10,10 @@ const MAX_BUFFER = 6000;
 const MAX_STREAM_EVENTS = 300;
 const MAX_STDERR_LINES = 300;
 const IDLE_CLOSE_MS = 25 * 60 * 1000;
+const CHROME_HINT =
+  "The user wants browser work done in the Chrome they already have open, through the mcp__claude-in-chrome__* tools (reuse an open tab or window where it makes sense). " +
+  "Do not start another browser (agent-browser, Playwright, Puppeteer, a new Chrome process) unless the user asks for it. " +
+  "If those tools report that no browser is connected, say so and tell the user the Claude in Chrome extension is not connected, instead of starting a new browser.";
 
 function publicRequest(options) {
   const { signal, ...rest } = options || {};
@@ -103,6 +107,11 @@ export class ClaudeSession extends EventEmitter {
     this.manager.emit("session.state", this.summary());
   }
 
+  /** The Settings toggle wins; otherwise the `chrome` option of the config file. */
+  useChrome() {
+    return Boolean(this.manager.prefs().useChrome ?? this.manager.config.chrome);
+  }
+
   // ---- lifecycle -----------------------------------------------------------------
   buildOptions() {
     const meta = this.meta;
@@ -157,6 +166,11 @@ export class ClaudeSession extends EventEmitter {
     if (meta.plugins?.length) options.plugins = meta.plugins.map((path) => ({ type: "local", path }));
     if (meta.settings) options.settings = meta.settings;
     if (meta.betas?.length) options.betas = meta.betas;
+    if (this.useChrome()) {
+      // Claude in Chrome: the browser tools drive the Chrome you already have open (through its extension).
+      options.extraArgs = { ...(options.extraArgs || {}), chrome: null };
+      options.systemPrompt.append = [options.systemPrompt.append, CHROME_HINT].filter(Boolean).join("\n\n");
+    }
     if (meta.extraArgs && typeof meta.extraArgs === "object") options.extraArgs = { ...(options.extraArgs || {}), ...meta.extraArgs };
     if (meta.worktree) options.extraArgs = { ...(options.extraArgs || {}), worktree: meta.worktree === true ? null : meta.worktree };
     return options;
@@ -461,9 +475,11 @@ function withTimeout(promise, ms, message) {
 }
 
 export class SessionManager extends EventEmitter {
-  constructor(config) {
+  /** `prefs` returns the UI-owned preferences (the Settings toggles that the server must know about). */
+  constructor(config, { prefs = () => ({}) } = {}) {
     super();
     this.config = config;
+    this.prefs = prefs;
     this.sessions = new Map();
     this.reaper = setInterval(() => this.reapIdle(), 60_000);
     this.reaper.unref();

@@ -109,6 +109,22 @@ registerSettingsSection({
         row(t("Effort"), t("How much reasoning to spend."), select("defaultEffort", EFFORTS.map((e) => [e.id, e.title()]))),
         row(t("Permission mode"), null, select("defaultPermissionMode", PERMISSION_MODES.filter((m) => m.id !== "bypassPermissions").map((m) => [m.id, m.title()]))),
       ),
+      h("div.group", h("h3", t("Browser")),
+        row(t("Use my open Chrome"), t("Claude drives the Chrome you already have open (through the Claude in Chrome extension) instead of starting a new browser. Needs the extension, signed in. Applies to new and restarted sessions."), (() => {
+          const input = h("input", { type: "checkbox", checked: Boolean(app.config?.chrome) });
+          input.addEventListener("change", async () => {
+            try {
+              await api.put("/api/prefs", { useChrome: input.checked });
+              app.config = await api.config();
+              toast(t("Applies to new and restarted sessions."), "info", 2500);
+            } catch (error) {
+              input.checked = !input.checked;
+              toast(errorMessage(error), "error");
+            }
+          });
+          return h("label.switch", input);
+        })()),
+      ),
     );
   },
 });

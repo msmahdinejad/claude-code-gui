@@ -27,7 +27,7 @@ import { UiStore } from "./lib/ui-store.mjs";
 import { applyProfile, loadConfig, profileSummary, testProfile } from "./lib/config.mjs";
 import * as fsgit from "./lib/fs-git.mjs";
 import * as cfiles from "./lib/claude-files.mjs";
-import { openUi } from "./lib/ui-launch.mjs";
+import { openExternal, openUi } from "./lib/ui-launch.mjs";
 import { startTray } from "./lib/tray.mjs";
 import { deriveTitle } from "./lib/title.mjs";
 import { generateTitle } from "./lib/titler.mjs";
@@ -72,7 +72,7 @@ if (config.version) {
 const store = await new UiStore(join(config.dataDir, "ui-state.json")).load();
 const savedProfile = store.data.prefs.activeProfile;
 applyProfile(config, config.profiles[savedProfile] ? savedProfile : config.defaultProfile);
-const manager = new SessionManager(config);
+const manager = new SessionManager(config, { prefs: () => store.data.prefs });
 const catalog = new Catalog(config, manager);
 
 const MIME = {
@@ -217,6 +217,17 @@ route("GET", "/api/status", async () => {
   return { ok: true, version: PACKAGE.version, live, running, waiting };
 });
 
+// Open a link from the chat in the user's normal browser (a new tab in the window they already use). The standalone
+// window cannot do this itself: its links would open in the window's private browser profile.
+route("POST", "/api/open-external", async ({ body }) => {
+  try {
+    openExternal(String(body.url || ""), { linkBrowser: config.linkBrowser });
+  } catch (error) {
+    throw new HttpError(400, error.message);
+  }
+  return { ok: true };
+});
+
 // Stops the server (and every Claude Code process it started). Same-origin POST only, like every API call.
 route("POST", "/api/shutdown", async () => {
   setTimeout(shutdown, 100).unref(); // after the response is out; SIGTERM handlers are not delivered on Windows
@@ -352,6 +363,7 @@ route("GET", "/api/config", async () => ({
   configDir: cfiles.configDir(),
   home: homedir(),
   platform: process.platform,
+  chrome: Boolean(store.data.prefs.useChrome ?? config.chrome),
   prefs: store.data.prefs,
   recentProjects: store.data.recentProjects,
   proxy: { http: Boolean(process.env.HTTPS_PROXY || process.env.HTTP_PROXY), noProxy: process.env.NO_PROXY || "" },

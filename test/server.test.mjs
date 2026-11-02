@@ -148,6 +148,13 @@ test("shutdown is refused for foreign or missing origins and stops the server fo
   await Promise.race([exited, new Promise((_, reject) => setTimeout(() => { second.kill(); reject(new Error("server did not stop")); }, 8000))]);
 });
 
+test("open-external rejects other schemes and foreign origins", async () => {
+  const bad = await api("/api/open-external", { method: "POST", body: JSON.stringify({ url: "file:///C:/Windows/System32/calc.exe" }) });
+  assert.equal(bad.status, 400);
+  const foreign = await fetch(`${base}/api/open-external`, { method: "POST", headers: { origin: "https://evil.example", "content-type": "application/json" }, body: JSON.stringify({ url: "https://example.com" }) });
+  assert.equal(foreign.status, 403);
+});
+
 test("unknown API endpoints return 404 JSON", async () => {
   const response = await api("/api/nope");
   assert.equal(response.status, 404);

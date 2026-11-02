@@ -103,7 +103,8 @@ function Show-AppWindow([string]$ProfileDir, [string]$IconFile = "", [string]$La
 function Open-AppWindow([string]$Url, [string]$Browser, [string]$ProfileDir, [string]$IconFile = "", [string]$LaunchVbs = "") {
   if (Show-AppWindow $ProfileDir $IconFile $LaunchVbs) { return }
   if (-not $Browser) { Start-Process $Url; return }
-  Start-Process -FilePath $Browser -ArgumentList @("--app=$Url", "--user-data-dir=`"$ProfileDir`"", "--window-size=1320,860")
+  # "?app=1" tells the page it runs in the standalone window (links then open in the normal browser).
+  Start-Process -FilePath $Browser -ArgumentList @("--app=$($Url.TrimEnd('/'))/?app=1", "--user-data-dir=`"$ProfileDir`"", "--window-size=1320,860")
   for ($i = 0; $i -lt 40; $i++) {
     Start-Sleep -Milliseconds 250
     $handle = Get-AppWindowHandle $ProfileDir

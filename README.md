@@ -53,6 +53,8 @@ works. It never talks to the model API itself and never alters a request.
 - Standalone window (`--app`), plus on Windows a **tray icon** (`--tray`) with open / open in browser / start with Windows /
   quit, a status dot when Claude waits for you, and global shortcuts (`Ctrl+Alt+W` app window, `Ctrl+Alt+Shift+W`
   browser). Details in [docs/CONFIGURATION.md](docs/CONFIGURATION.md#tray-icon-and-shortcuts).
+- Links in the conversation open as a tab in the browser you already use, not in a new window. Optionally give Claude the
+  Chrome you already have open (*Claude in Chrome*) instead of letting it start another one.
 
 **Workspace panels**
 - **Changes**: stage, commit, branches, history, unified/split diffs. **Files**: tree, preview, edit, `@`-reference.

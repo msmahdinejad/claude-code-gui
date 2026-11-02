@@ -19,6 +19,23 @@ cloud provider in a profile ([examples](../examples)). Wheelhouse itself never a
 The list comes from your account/gateway through Claude Code. Check **Test** in Settings → Connection; then
 **Command palette → Reload models, commands and skills**. You can still type any model id with *Custom model…*.
 
+## Claude in Chrome lists no browsers
+With *Use my open Chrome* on, a session has the `mcp__claude-in-chrome__*` tools and the `claude-in-chrome` MCP server shows
+as connected, but `list_connected_browsers` returns nothing. The server only connects to the CLI; the browser side is the
+**Claude in Chrome extension**, which talks to one Claude app at a time:
+- If **Claude Desktop** is installed it registers its own native host for the same extension and usually wins. Claude Code
+  registers `com.anthropic.claude_code_browser_extension` (check `HKCU\Software\Google\Chrome\NativeMessagingHosts`); the
+  extension has to be attached to that one, not to Claude Desktop's.
+- The extension must be signed in to the **same Claude account** as the CLI (the one `claude auth status` shows).
+- Reload the extension (or restart Chrome) after changing either.
+
+Wheelhouse does not change native-host registrations or extension settings for you.
+
+## Links open in a new Chrome window
+Links clicked in the standalone window (`--app`) are opened by the server in your default browser (or Chrome with
+`"linkBrowser": "chrome"`), as a new tab in a window you already use. If you still get a separate window, the window was
+opened before this version: quit Wheelhouse (tray → Quit) and start it again.
+
 ## Folder dialog does not open
 Windows and macOS use the system dialog. On Linux install `zenity` or `kdialog`; otherwise Wheelhouse falls back to its
 built-in folder browser.

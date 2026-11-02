@@ -144,6 +144,10 @@ export function loadConfig({ argv = process.argv.slice(2), env = process.env, ho
     },
     profiles,
     defaultProfile,
+    // Give sessions the Claude-in-Chrome tools, which drive the Chrome that is already open (the Settings toggle wins).
+    chrome: ["1", "true", "on", "yes"].includes(String(env.WHEELHOUSE_CHROME ?? raw.chrome ?? false).toLowerCase()),
+    // Where links clicked in the standalone window open: your default browser, or specifically Chrome.
+    linkBrowser: raw.linkBrowser === "chrome" ? "chrome" : "default",
     // Name new sessions with a short model-written title after the first reply (one small extra request).
     autoTitle: !["0", "false", "off"].includes(String(env.WHEELHOUSE_AUTO_TITLE ?? raw.autoTitle ?? true).toLowerCase()),
     tray: {

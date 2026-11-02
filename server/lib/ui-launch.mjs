@@ -28,20 +28,40 @@ export function findBrowser() {
 }
 
 /**
+ * Open a link in the user's normal browser: a new tab in the browser window they already use, not a new window of
+ * the standalone app's private profile. Only http(s) links; the URL is passed as one argument, never through a shell.
+ * `linkBrowser: "chrome"` uses Chrome specifically (its default profile), otherwise the system default browser.
+ */
+export function openExternal(rawUrl, { linkBrowser = "default" } = {}) {
+  const parsed = new URL(rawUrl);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("only http and https links can be opened");
+  const href = parsed.href;
+  if (process.env.WHEELHOUSE_NO_OPEN) return; // tests: validate, but do not launch a browser
+  const chrome = linkBrowser === "chrome" ? findBrowser() : "";
+  const [cmd, args] = chrome && /chrome/i.test(chrome)
+    ? [chrome, [href]]
+    : process.platform === "win32"
+      ? ["rundll32.exe", ["url.dll,FileProtocolHandler", href]]
+      : process.platform === "darwin" ? ["open", [href]] : ["xdg-open", [href]];
+  const child = execFile(cmd, args, () => {});
+  child.on("error", () => {});
+  child.unref?.();
+}
+
+/**
  * `appWindow` = standalone window with its own browser profile in `profileDir`; otherwise the default browser.
  * On Windows an already open app window is brought to the front instead of opening a second one.
  */
 export function openUi(url, { appWindow = false, profileDir = "", assets = null } = {}) {
   const win = process.platform === "win32";
-  const defaultOpen = () => {
-    const [cmd, args] = win ? ["cmd", ["/c", "start", "", url]] : process.platform === "darwin" ? ["open", [url]] : ["xdg-open", [url]];
-    execFile(cmd, args, () => {}).on("error", () => {});
-  };
+  const defaultOpen = () => openExternal(url);
   if (!appWindow) return defaultOpen();
   const bin = findBrowser(); // a bare name that is not installed fails through "error" below
   if (!bin) return defaultOpen();
+  // "?app=1" tells the page it runs in the standalone window (links then open in your normal browser instead).
+  const appUrl = `${url.replace(/\/$/, "")}/?app=1`;
   const direct = () => {
-    const child = execFile(bin, [`--app=${url}`, `--user-data-dir=${profileDir}`, "--window-size=1320,860"], { windowsHide: false });
+    const child = execFile(bin, [`--app=${appUrl}`, `--user-data-dir=${profileDir}`, "--window-size=1320,860"], { windowsHide: false });
     child.on("error", defaultOpen);
     child.unref();
   };

@@ -3,6 +3,20 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, minor versions may change the config format).
 
+## [0.3.0] - 2026-11-02
+
+### Added
+- **Links open in your own browser**: a link clicked in the standalone window (`--app`) is opened as a new tab in the
+  browser you already work in, instead of a new window of the app's private profile (which looked like "a new Chrome").
+  `linkBrowser: "chrome"` picks Chrome explicitly. In a normal browser tab links behave as before. Only `http(s)` links
+  are opened, never through a shell.
+- **Use my open Chrome** (`chrome` option / Settings → Model & behavior): sessions get the Claude in Chrome tools, which
+  work in the Chrome you already have open, and Claude is told not to start another browser. Needs the extension attached
+  to Claude Code and signed in to the same account, see Troubleshooting.
+
+### Changed
+- Opening the UI in the default browser no longer goes through `cmd start` (links containing `&` were cut).
+
 ## [0.2.3] - 2026-10-28
 
 ### Added
