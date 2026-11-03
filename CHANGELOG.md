@@ -3,6 +3,15 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, minor versions may change the config format).
 
+## [0.4.1] - 2026-11-03
+
+### Fixed
+- Queued messages (sent while Claude was still working) vanished after a few seconds and were never sent: the composer
+  cleared the queue, and reset the text box, on every "current conversation" refresh (a title arriving, a reload, the
+  window coming back to the front), not only when you switched conversations. The queue is now kept per conversation,
+  survives those refreshes, and a conversation's queue is sent when you return to it. A queued message that fails to
+  send goes back to the text box instead of being dropped.
+
 ## [0.4.0] - 2026-11-03
 
 ### Added

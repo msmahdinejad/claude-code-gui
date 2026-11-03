@@ -29,7 +29,12 @@ export function mountComposer(host) {
   host.replaceChildren(root, hint);
 
   let images = []; // {mediaType, data, name}
-  let queue = []; // {text, images}
+  const queues = new Map(); // conversation id -> [{text, images}]; each conversation keeps its own waiting messages
+  const queueFor = (id = app.currentId) => {
+    if (!queues.has(id)) queues.set(id, []);
+    return queues.get(id);
+  };
+  let shownId = null; // the conversation the composer is currently showing
   let ac = null; // autocomplete popover state
   let dictation = null;
 
@@ -39,12 +44,15 @@ export function mountComposer(host) {
     try { textarea.value ? localStorage.setItem(draftKey(), textarea.value) : localStorage.removeItem(draftKey()); } catch { /* ignore */ }
   }, 250);
   function loadDraft() {
-    try { textarea.value = localStorage.getItem(draftKey()) || ""; } catch { textarea.value = ""; }
-    images = [];
-    queue = [];
-    renderAttachments();
+    // "current" is also emitted for a rename, a reload or the window coming back: only a real switch resets the input.
+    if (shownId !== app.currentId) {
+      shownId = app.currentId;
+      try { textarea.value = localStorage.getItem(draftKey()) || ""; } catch { textarea.value = ""; }
+      images = [];
+      renderAttachments();
+      autosize();
+    }
     renderQueue();
-    autosize();
   }
 
   function autosize() {
@@ -121,33 +129,42 @@ export function mountComposer(host) {
 
   // ---- queue ----
   function renderQueue() {
+    const queue = queueFor();
     queueBox.classList.toggle("hidden", !queue.length);
     queueBox.replaceChildren(
-      ...queue.map((entry, index) =>
+      ...queue.map((entry) =>
         h(
           "div.queue-item",
           icon("clock", 13),
           h("span", { dir: "auto" }, entry.text || t("(image)")),
-          h("button.mini", { type: "button", title: t("Send now (interrupt)"), onclick: () => sendNow(index) }, icon("zap", 13)),
-          h("button.mini", { type: "button", title: t("Remove"), onclick: () => { queue.splice(index, 1); renderQueue(); } }, icon("x", 13)),
+          h("button.mini", { type: "button", title: t("Send now (interrupt)"), onclick: () => sendNow(entry) }, icon("zap", 13)),
+          h("button.mini", { type: "button", title: t("Remove"), onclick: () => { queue.splice(queue.indexOf(entry), 1); renderQueue(); } }, icon("x", 13)),
         ),
       ),
     );
   }
 
-  async function sendNow(index) {
-    const [entry] = queue.splice(index, 1);
+  async function sendNow(entry) {
+    const queue = queueFor();
+    if (queue.indexOf(entry) < 0) return;
+    queue.splice(queue.indexOf(entry), 1);
     renderQueue();
     await session.interrupt();
     await deliver(entry.text, entry.images);
   }
 
+  let delivering = false; // a queued message is on its way; the next one waits until the session reports it is working
   function drainQueue() {
+    const queue = queueFor();
     const conv = currentConv();
-    if (!queue.length || !conv || isBusy(conv)) return;
+    if (delivering || !queue.length || !conv || isBusy(conv)) return;
     const entry = queue.shift();
     renderQueue();
-    deliver(entry.text, entry.images);
+    delivering = true;
+    deliver(entry.text, entry.images).finally(() => {
+      // The server's "running" state may still be on its way; give it a moment before the next queued message.
+      setTimeout(() => { delivering = false; drainQueue(); }, 400);
+    });
   }
 
   // ---- sending ----
@@ -155,14 +172,17 @@ export function mountComposer(host) {
     try {
       await session.sendMessage(text, imgs);
     } catch {
-      // The controller already showed the error; put the message back so nothing typed is lost.
+      // The controller already showed the error; hand the message back so nothing typed is lost.
       if (!textarea.value.trim() && !images.length) {
         textarea.value = text;
         images = imgs;
-        renderAttachments();
-        autosize();
-        refresh();
+      } else {
+        textarea.value = textarea.value.trim() ? `${text}\n\n${textarea.value}` : text;
+        images = [...imgs, ...images];
       }
+      renderAttachments();
+      autosize();
+      refresh();
     }
   }
 
@@ -184,7 +204,7 @@ export function mountComposer(host) {
     const entry = { text, images: images.slice() };
     clearInput();
     if (busy) {
-      queue.push(entry);
+      queueFor().push(entry);
       renderQueue();
       return;
     }
@@ -399,6 +419,7 @@ export function mountComposer(host) {
   bus.on("current", () => {
     loadDraft();
     refresh();
+    drainQueue(); // messages queued here while the session finished in the background
     if (!matchMedia("(pointer: coarse)").matches) textarea.focus({ preventScroll: true });
   });
   bus.on("meta", refresh);
