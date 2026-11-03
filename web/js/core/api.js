@@ -75,7 +75,7 @@ export function connectGlobalEvents(onStatus) {
       try { data = JSON.parse(event.data); } catch { /* ignore */ }
       for (const fn of listeners.get(name) || []) fn(data);
     });
-  ["hello", "session.state", "session.attention", "sessions.changed"].forEach(wire);
+  ["hello", "session.state", "session.attention", "sessions.changed", "notification", "focus.session"].forEach(wire);
   source.onopen = () => onStatus?.(true);
   source.onerror = () => onStatus?.(false);
 }

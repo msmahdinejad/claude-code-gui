@@ -112,6 +112,13 @@ On Windows, `--tray` (or `"tray": { "enabled": true }`) adds a notification-area
 - **Quit** closes the window, stops the server and every running Claude Code process, and removes the icon. If the server
   stops by itself (Ctrl+C, *Quit Wheelhouse* in the command palette), the tray cleans up the window and removes itself.
 - The icon gets a yellow dot while a session waits for your approval.
+- **Notifications**: a native Windows notification appears when a session finishes (with the last thing Claude said), needs
+  your approval, has a question, or has a plan ready to review. They come from the tray, so they arrive with the window
+  closed too. Clicking one opens that conversation. Nothing is shown for the conversation you are reading in a focused
+  window. Turn them off, or send a test one, in *Settings → General → Notifications*. Windows' Focus assist / Do not disturb
+  can hide them. The first start adds a *Wheelhouse* entry to your Start menu: Windows labels notifications with the name
+  and icon of that shortcut (otherwise they would be labelled "Windows PowerShell"). Without a tray (a browser tab, macOS,
+  Linux) the page shows them itself through the browser's Notification API while it is open.
 - **Global shortcuts**: `Ctrl+Alt+W` opens or focuses the app window, `Ctrl+Alt+Shift+W` opens the UI in your default
   browser. Change them with `tray.hotkey` / `tray.browserHotkey` (modifiers `Ctrl`, `Alt`, `Shift`, `Win` plus a key such as
   `W`, `Space`, `F9`). If another program already owns a shortcut, the menu shows it as *unavailable*.

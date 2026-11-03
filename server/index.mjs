@@ -29,6 +29,7 @@ import * as fsgit from "./lib/fs-git.mjs";
 import * as cfiles from "./lib/claude-files.mjs";
 import { openExternal, openUi } from "./lib/ui-launch.mjs";
 import { startTray } from "./lib/tray.mjs";
+import { Notifier, folderName } from "./lib/notifier.mjs";
 import { deriveTitle } from "./lib/title.mjs";
 import { generateTitle } from "./lib/titler.mjs";
 import { windowAssets } from "./lib/launchers.mjs";
@@ -73,6 +74,14 @@ const store = await new UiStore(join(config.dataDir, "ui-state.json")).load();
 const savedProfile = store.data.prefs.activeProfile;
 applyProfile(config, config.profiles[savedProfile] ? savedProfile : config.defaultProfile);
 const manager = new SessionManager(config, { prefs: () => store.data.prefs });
+const notifier = new Notifier({
+  manager,
+  prefs: () => store.data.prefs,
+  titleOf: (id) => {
+    const live = manager.get(id);
+    return live?.meta.title || store.sessionMeta(id).title || folderName(live?.cwd);
+  },
+});
 const catalog = new Catalog(config, manager);
 
 const MIME = {
@@ -215,6 +224,29 @@ route("GET", "/api/status", async () => {
     if (current.pending.size) waiting += 1;
   }
   return { ok: true, version: PACKAGE.version, live, running, waiting };
+});
+
+// Notifications for the tray (finished / needs approval / has a question). `since` is the last id the caller has seen;
+// without it only the current cursor comes back, so a freshly started tray does not replay old ones.
+route("GET", "/api/notifications", async ({ query }) => {
+  const since = query.get("since");
+  return notifier.after(since === null || since === "" ? NaN : Number(since));
+});
+
+// The page reports whether it has focus and which conversation is open (no notification for what the user is reading).
+route("POST", "/api/presence", async ({ body }) => {
+  notifier.setPresence(body || {});
+  if ((body?.lang === "fa" || body?.lang === "en") && store.data.prefs.uiLang !== body.lang) await store.setPrefs({ uiLang: body.lang });
+  return { ok: true };
+});
+
+route("POST", "/api/notify-test", async () => ({ ok: true, item: notifier.test() }));
+
+// The tray asks the open window to show a conversation (a clicked notification).
+route("POST", "/api/focus", async ({ body }) => {
+  if (!/^[\w-]+$/.test(String(body?.sessionId || ""))) throw new HttpError(400, "bad session id");
+  broadcast("focus.session", { sessionId: body.sessionId });
+  return { ok: true };
 });
 
 // Open a link from the chat in the user's normal browser (a new tab in the window they already use). The standalone
@@ -364,6 +396,7 @@ route("GET", "/api/config", async () => ({
   home: homedir(),
   platform: process.platform,
   chrome: Boolean(store.data.prefs.useChrome ?? config.chrome),
+  nativeNotifications: config.tray.enabled && process.platform === "win32", // the tray shows them, the page need not
   prefs: store.data.prefs,
   recentProjects: store.data.recentProjects,
   proxy: { http: Boolean(process.env.HTTPS_PROXY || process.env.HTTP_PROXY), noProxy: process.env.NO_PROXY || "" },
@@ -652,6 +685,7 @@ manager.on("session.first-result", async (live) => {
 manager.on("session.state", (summary) => broadcast("session.state", summary));
 manager.on("session.attention", (payload) => broadcast("session.attention", payload));
 manager.on("sessions.changed", () => broadcast("sessions.changed", {}));
+notifier.on("notification", (item) => broadcast("notification", item));
 
 // Changes on every server start: a page that sees a different id knows its cached conversations are stale.
 const BOOT_ID = randomUUID();

@@ -80,15 +80,20 @@ registerSettingsSection({
         })()),
       ),
       h("div.group", h("h3", t("Notifications")),
-        row(t("Desktop notifications"), t("Notify when Claude needs approval or finishes while this tab is in the background."), (() => {
-          const input = h("input", { type: "checkbox", checked: Boolean(app.prefs.notifications) });
+        row(t("Desktop notifications"), app.config?.nativeNotifications
+          ? t("Notify when Claude finishes, needs your approval or has a question. They also appear when this window is closed, as long as Wheelhouse runs in the tray.")
+          : t("Notify when Claude needs approval or finishes while this tab is in the background."), (() => {
+          const input = h("input", { type: "checkbox", checked: app.prefs.notifications !== false });
           input.addEventListener("change", async () => {
             setPrefs({ notifications: input.checked });
-            if (input.checked && "Notification" in window && Notification.permission === "default") await Notification.requestPermission();
+            if (input.checked && !app.config?.nativeNotifications && "Notification" in window && Notification.permission === "default") await Notification.requestPermission();
           });
           return h("label.switch", input);
         })()),
-        row(t("Sound"), null, toggle("sound")),
+        row(t("Test notification"), t("Sends a notification now, to check that it shows up."), h("button.btn", { type: "button", onclick: async () => {
+          if (!app.config?.nativeNotifications && "Notification" in window && Notification.permission === "default") await Notification.requestPermission();
+          try { await api.post("/api/notify-test", {}); } catch (error) { toast(errorMessage(error), "error"); }
+        } }, t("Send"))),
       ),
     );
   },

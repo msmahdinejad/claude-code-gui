@@ -36,6 +36,12 @@ Links clicked in the standalone window (`--app`) are opened by the server in you
 `"linkBrowser": "chrome"`), as a new tab in a window you already use. If you still get a separate window, the window was
 opened before this version: quit Wheelhouse (tray → Quit) and start it again.
 
+## No notifications
+Use *Settings → Notifications → Send* to test. Native notifications need the tray (`--tray`); without it the browser's own
+notifications are used and the browser must have allowed them for the page. If the test shows nothing, check Windows'
+*Focus assist / Do not disturb* and *Settings → System → Notifications → Wheelhouse*. Notifications are not sent for the
+conversation you are reading in a focused window.
+
 ## Folder dialog does not open
 Windows and macOS use the system dialog. On Linux install `zenity` or `kdialog`; otherwise Wheelhouse falls back to its
 built-in folder browser.

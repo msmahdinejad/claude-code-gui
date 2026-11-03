@@ -75,6 +75,18 @@ function ConvertTo-Hotkey([string]$text) {
 function Open-App { Open-AppWindow $Url $Browser $ProfileDir $IconFile $LaunchVbs }
 function Open-InBrowser { Start-Process $Url }
 
+# Opens the conversation a notification is about: an open window is told to switch to it, a closed one starts on it.
+function Open-Session([string]$id) {
+  if ($id -notmatch '^[\w-]+$') { Open-App; return }
+  if (Show-AppWindow $ProfileDir $IconFile $LaunchVbs) {
+    try {
+      Invoke-RestMethod -Method Post -Uri "$Url/api/focus" -Headers @{ Origin = $Url } -ContentType "application/json" -Body (@{ sessionId = $id } | ConvertTo-Json -Compress) -TimeoutSec 3 | Out-Null
+    } catch { Log "focus request failed: $($_.Exception.Message)" }
+    return
+  }
+  Open-AppWindow $Url $Browser $ProfileDir $IconFile $LaunchVbs "#/s/$id"
+}
+
 # ---- icon ------------------------------------------------------------------------------------------------------
 $script:iconHandle = [IntPtr]::Zero
 function New-TrayIcon([bool]$badge) {
@@ -161,6 +173,24 @@ function Quit-All {
   Exit-Tray
 }
 
+# ---- notification identity -------------------------------------------------------------------------------------
+# Without its own AppUserModelID a notification is labelled "Windows PowerShell" (the process that owns the icon).
+# A Start menu shortcut that carries the id gives it the name and icon of Wheelhouse.
+try {
+  $startLink = Join-Path ([Environment]::GetFolderPath("Programs")) "$AppName.lnk"
+  if ($LaunchVbs -and -not (Test-Path $startLink)) {
+    $shell = New-Object -ComObject WScript.Shell
+    $link = $shell.CreateShortcut($startLink)
+    $link.TargetPath = Join-Path $env:WINDIR "System32\wscript.exe"
+    $link.Arguments = "`"$LaunchVbs`""
+    $link.Description = $AppName
+    if ($IconFile -and (Test-Path $IconFile)) { $link.IconLocation = "$IconFile,0" }
+    $link.Save()
+    [void][WhNative]::TagShortcut($startLink, "Wheelhouse.Tray")
+  }
+  [void][WhNative]::SetCurrentProcessExplicitAppUserModelID("Wheelhouse.Tray")
+} catch { Log "notification identity not set: $($_.Exception.Message)" }
+
 # ---- UI --------------------------------------------------------------------------------------------------------
 $notify = New-Object System.Windows.Forms.NotifyIcon
 $notify.Text = $AppName
@@ -207,10 +237,37 @@ $hotkeys.add_Pressed([Action[int]]{
     if ($id -eq 1) { Open-App } elseif ($id -eq 2) { Open-InBrowser }
   })
 
+# ---- notifications ---------------------------------------------------------------------------------------------
+# The server collects "finished / needs approval / has a question" items; they are shown as native notifications, so
+# they arrive with the window closed too. A click opens the conversation the notification is about.
+$script:noteCursor = $null
+$script:noteSession = ""
+function Clip-Text([string]$text, [int]$max) {
+  if ($text.Length -le $max) { return $text }
+  return $text.Substring(0, $max - 1) + [string][char]0x2026
+}
+function Show-Notes {
+  try {
+    $uri = "$Url/api/notifications"
+    if ($null -ne $script:noteCursor) { $uri += "?since=$($script:noteCursor)" }
+    $r = Invoke-RestMethod -Uri $uri -TimeoutSec 2
+  } catch { return }
+  $script:noteCursor = $r.cursor
+  $items = @($r.items)
+  if (-not $items.Count) { return }
+  $last = $items[$items.Count - 1]
+  $script:noteSession = [string]$last.sessionId
+  $body = [string]$last.body
+  if ($items.Count -gt 1) { $body = "$body  (+$($items.Count - 1))" }
+  Log "notify: $($last.kind) $($last.sessionId)"
+  $notify.ShowBalloonTip(10000, (Clip-Text ([string]$last.title) 60), (Clip-Text $body 230), [System.Windows.Forms.ToolTipIcon]::None)
+}
+$notify.add_BalloonTipClicked({ Open-Session $script:noteSession })
+
 # ---- status polling --------------------------------------------------------------------------------------------
 $script:waiting = $false
 $timer = New-Object System.Windows.Forms.Timer
-$timer.Interval = 4000
+$timer.Interval = 2000
 function Update-Status {
   if (-not (Get-Process -Id $ServerPid -ErrorAction SilentlyContinue)) { Log "server is gone"; Quit-All; return }
   $text = "running"
@@ -226,6 +283,7 @@ function Update-Status {
   $statusItem.Text = "Running on " + ([Uri]$Url).Authority + " - $text"
   $notify.Text = $label.Substring(0, [Math]::Min(63, $label.Length))
   if ($waiting -ne $script:waiting) { $script:waiting = $waiting; Set-TrayIcon $waiting }
+  Show-Notes
 }
 $timer.add_Tick({ Update-Status })
 $timer.Start()

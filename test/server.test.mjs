@@ -155,6 +155,20 @@ test("open-external rejects other schemes and foreign origins", async () => {
   assert.equal(foreign.status, 403);
 });
 
+test("notification endpoints: cursor, test notification, presence and focus validation", async () => {
+  const start = await (await api("/api/notifications")).json();
+  assert.deepEqual(start.items, []);
+  const sent = await (await api("/api/notify-test", { method: "POST", body: "{}" })).json();
+  assert.equal(sent.item.kind, "test");
+  const after = await (await api(`/api/notifications?since=${start.cursor}`)).json();
+  assert.equal(after.items.length, 1);
+  assert.equal((await api("/api/presence", { method: "POST", body: JSON.stringify({ focused: true, sessionId: "x" }) })).status, 200);
+  assert.equal((await api("/api/focus", { method: "POST", body: JSON.stringify({ sessionId: "../x" }) })).status, 400);
+  assert.equal((await api("/api/focus", { method: "POST", body: JSON.stringify({ sessionId: "abc-123" }) })).status, 200);
+  const foreign = await fetch(`${base}/api/notify-test`, { method: "POST", headers: { origin: "https://evil.example", "content-type": "application/json" }, body: "{}" });
+  assert.equal(foreign.status, 403);
+});
+
 test("unknown API endpoints return 404 JSON", async () => {
   const response = await api("/api/nope");
   assert.equal(response.status, 404);

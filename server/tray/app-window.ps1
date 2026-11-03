@@ -10,6 +10,7 @@ public static class WhNative {
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool DestroyIcon(IntPtr hIcon);
+  [DllImport("shell32.dll", CharSet = CharSet.Unicode)] public static extern int SetCurrentProcessExplicitAppUserModelID(string appId);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr LoadImage(IntPtr hinst, string name, uint type, int cx, int cy, uint flags);
   [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
@@ -37,6 +38,20 @@ public static class WhNative {
     variant.p = Marshal.StringToCoTaskMemUni(value);
     store.SetValue(ref key, ref variant);
     PropVariantClear(ref variant); // frees the string
+  }
+
+  [DllImport("shell32.dll", CharSet = CharSet.Unicode)] static extern int SHGetPropertyStoreFromParsingName(string path, IntPtr bindContext, int flags, ref Guid riid, out IPropertyStore store);
+
+  // Gives a .lnk file an AppUserModelID: notifications of a process with that id are labelled with the shortcut's name and icon.
+  public static int TagShortcut(string lnkPath, string appId) {
+    Guid iid = new Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99");
+    IPropertyStore store;
+    int hr = SHGetPropertyStoreFromParsingName(lnkPath, IntPtr.Zero, 2, ref iid, out store); // 2 = GPS_READWRITE
+    if (hr != 0 || store == null) return hr;
+    Set(store, 5, appId);
+    store.Commit();
+    Marshal.ReleaseComObject(store);
+    return 0;
   }
 
   // Own AppUserModelID (so the window is not grouped under the browser's taskbar button) + relaunch info (what a
@@ -100,11 +115,12 @@ function Show-AppWindow([string]$ProfileDir, [string]$IconFile = "", [string]$La
 
 # An open app window is brought to the front; otherwise a new one is started (or the default browser, if no
 # Chromium-based browser was found). New windows get their own taskbar identity and icon as soon as they appear.
-function Open-AppWindow([string]$Url, [string]$Browser, [string]$ProfileDir, [string]$IconFile = "", [string]$LaunchVbs = "") {
+function Open-AppWindow([string]$Url, [string]$Browser, [string]$ProfileDir, [string]$IconFile = "", [string]$LaunchVbs = "", [string]$Hash = "") {
   if (Show-AppWindow $ProfileDir $IconFile $LaunchVbs) { return }
-  if (-not $Browser) { Start-Process $Url; return }
+  if (-not $Browser) { Start-Process "$($Url.TrimEnd('/'))/$Hash"; return }
   # "?app=1" tells the page it runs in the standalone window (links then open in the normal browser).
-  Start-Process -FilePath $Browser -ArgumentList @("--app=$($Url.TrimEnd('/'))/?app=1", "--user-data-dir=`"$ProfileDir`"", "--window-size=1320,860")
+  # $Hash ("#/s/<session id>") makes a freshly started window open that conversation.
+  Start-Process -FilePath $Browser -ArgumentList @("--app=$($Url.TrimEnd('/'))/?app=1$Hash", "--user-data-dir=`"$ProfileDir`"", "--window-size=1320,860")
   for ($i = 0; $i -lt 40; $i++) {
     Start-Sleep -Milliseconds 250
     $handle = Get-AppWindowHandle $ProfileDir

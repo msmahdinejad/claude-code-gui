@@ -85,7 +85,8 @@ openSettings(id), openInspector(id), runPrompt(text), fillComposer(text) }`.
 `GET /api/sessions/:id/stream` and `GET /api/events` (SSE), `GET /api/fs/{list,read,search,home}`,
 `GET /api/git/{info,diff,log,branches}`, `POST /api/git/action`, `GET|PUT /api/settings`, `GET|PUT /api/claude-md`,
 `GET /api/resources`, `GET|PUT|DELETE /api/resource`, `POST /api/cli` (allow-listed `claude mcp|plugin|auth …`),
-`GET /api/status` (live counts for the tray), `POST /api/shutdown` (stop the server),
+`GET /api/status` (live counts for the tray), `GET /api/notifications?since=` (what the tray announces),
+`POST /api/{presence,notify-test,focus}`, `POST /api/shutdown` (stop the server),
 `GET /api/profile`, `POST /api/profile/{test,switch}`, `GET /api/profile/status`, `POST /api/pick-folder`,
 `POST /api/workspaces/new`, `GET /api/features`. Feature modules add more under `server/lib/routes/`.
 
