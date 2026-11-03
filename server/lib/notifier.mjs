@@ -2,7 +2,6 @@
 // answer or a plan review. The tray (server/tray/tray.ps1) polls them and shows native Windows notifications, so they
 // arrive even when the app window is closed; pages without a tray show them with the browser Notification API.
 import { EventEmitter } from "node:events";
-import { basename } from "node:path";
 
 const MAX_ITEMS = 50;
 const PRESENCE_TTL_MS = 25_000; // the page re-sends its presence every ~10 s while it has focus
@@ -144,4 +143,5 @@ export class Notifier extends EventEmitter {
   }
 }
 
-export const folderName = (cwd) => (cwd ? basename(String(cwd).replace(/[\\/]+$/, "")) : "");
+/** Last part of a path, whichever separator it uses. */
+export const folderName = (path) => (path ? String(path).split(/[\\/]+/).filter(Boolean).pop() || "" : "");
