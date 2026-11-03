@@ -3,6 +3,19 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, minor versions may change the config format).
 
+## [0.4.0] - 2026-11-03
+
+### Added
+- **Native notifications** (Windows tray): a notification when a session finishes, needs your approval, has a question
+  or has a plan ready. They are shown by the tray, so they arrive with the window closed; clicking one opens that
+  conversation. The server decides what is worth announcing and stays quiet about the conversation you are reading in a
+  focused window. *Settings → Notifications* has an on/off switch and a *Send* button for a test notification.
+- A *Wheelhouse* Start menu shortcut is created on first tray start; it gives the notifications the app's name and icon.
+
+### Changed
+- Without a tray, the page-based notifications now use the same server-side events (finished, approval, question, plan),
+  and the unused *Sound* switch was removed.
+
 ## [0.3.0] - 2026-11-02
 
 ### Added
