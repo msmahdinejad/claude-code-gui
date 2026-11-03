@@ -99,7 +99,7 @@ export class Notifier extends EventEmitter {
   onAttention(sessionId, request) {
     const text = this.text;
     let kind = "approval";
-    let body = text.approval;
+    let body;
     if (request.kind === "permission") {
       if (request.toolName === "AskUserQuestion") {
         kind = "question";
