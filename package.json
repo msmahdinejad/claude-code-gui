@@ -59,10 +59,10 @@
     "@eslint/js": "^10.0.1",
     "dompurify": "^3.2.0",
     "esbuild": "^0.28.2",
-    "eslint": "^10.13.0",
+    "eslint": "^10.14.0",
     "globals": "^17.13.0",
     "highlight.js": "^11.11.0",
-    "marked": "^18.1.1",
+    "marked": "^18.1.2",
     "puppeteer-core": "^25.16.0"
   }
 }
