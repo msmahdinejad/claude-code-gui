@@ -7,6 +7,7 @@ import { renderMarkdown, wireMarkdownActions } from "./markdown.js";
 import { ToolCard } from "./tools.js";
 import { isBusy } from "./reducer.js";
 import { isAuthProblem, openLoginDialog } from "../ui/login-dialog.js";
+import { describeApiFailure, failureAdvice, seconds } from "./api-errors.js";
 
 const signInButton = () => h("button.btn.small", { type: "button", onclick: () => openLoginDialog() }, icon("unlock", 13), t("Sign in"));
 
@@ -310,7 +311,31 @@ export class ChatView {
     footer.replaceChildren(...parts);
   }
 
+  renderRetry(node, item) {
+    const r = item.retry;
+    const advice = failureAdvice(r.status, r.error);
+    const progress = [
+      r.status ? `HTTP ${r.status}` : null,
+      t("Attempt {n} of {max}", { n: r.attempt ?? "?", max: r.max ?? "?" }),
+      r.delayMs != null ? t("next try in {time}", { time: seconds(r.delayMs) }) : null,
+    ].filter(Boolean);
+    node.el.replaceChildren(
+      h(
+        "div.banner.warn",
+        icon("alert", 14),
+        h(
+          "div.banner-text",
+          h("strong", { dir: "auto" }, describeApiFailure(r.status, r.error)),
+          h("span.muted", { dir: "auto" }, ` — ${progress.join(" · ")}`),
+          advice ? h("div.muted", { dir: "auto" }, advice) : null,
+          h("details", h("summary", t("Details")), h("pre", { dir: "ltr" }, String(item.detail))),
+        ),
+      ),
+    );
+  }
+
   renderNotice(node, item) {
+    if (item.subtype === "retry" && item.retry) return this.renderRetry(node, item);
     const kind = item.level || "info";
     const box = h(
       `div.banner.${kind}`,
@@ -349,5 +374,7 @@ function describeAssistantError(error) {
     max_output_tokens: t("The reply hit the maximum output length."),
     unknown: t("Unknown error."),
   };
-  return map[error] || String(error);
+  const text = map[error] || String(error);
+  const advice = failureAdvice(null, error);
+  return advice && error === "server_error" ? `${text} ${advice}` : text;
 }

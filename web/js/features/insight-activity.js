@@ -5,6 +5,7 @@ import { t } from "../core/i18n.js";
 import { app, bus } from "../core/state.js";
 import { registerInspectorTab } from "../core/registry.js";
 import { api } from "../core/api.js";
+import { describeApiFailure, seconds } from "../chat/api-errors.js";
 
 const CATEGORY = {
   hook: ["hook_started", "hook_progress", "hook_response"],
@@ -34,7 +35,7 @@ function describe(entry) {
     case "api_retry":
       iconName = "refresh";
       level = "warn";
-      text = `${t("API retry")} ${msg.attempt ?? ""}/${msg.max_retries ?? ""} ${msg.error_status ?? msg.error ?? ""}`;
+      text = `${t("API retry")} ${msg.attempt ?? ""}/${msg.max_retries ?? ""} · ${msg.error_status ? `HTTP ${msg.error_status} ` : ""}${describeApiFailure(msg.error_status, msg.error)}${msg.retry_delay_ms != null ? ` · ${t("next try in {time}", { time: seconds(msg.retry_delay_ms) })}` : ""}`;
       break;
     case "rate_limit_event":
       iconName = "gauge";

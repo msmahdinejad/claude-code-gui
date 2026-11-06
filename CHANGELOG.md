@@ -3,6 +3,14 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, minor versions may change the config format).
 
+## [0.5.1] - 2026-11-06
+
+### Changed
+- **Clearer API errors**: a failing request now shows one message that says what happened in words, with the HTTP status
+  (for example "The gateway timed out waiting for the model provider — HTTP 504"), the attempt ("Attempt 4 of 10"), when
+  the next try happens and whose side the fault is on (gateway/provider, not your login). The attempts of one request update
+  that message instead of adding a line each; *Details* has the raw status per attempt. The Activity tab shows the same.
+
 ## [0.5.0] - 2026-11-06
 
 ### Added

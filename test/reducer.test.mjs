@@ -101,3 +101,27 @@ test("TodoWrite updates conversation todos and subagent children nest under thei
   assert.deepEqual(conv.tools.get("ag").children, ["child"]);
   assert.equal(conv.items.length, 1, "subagent output stays out of the main timeline");
 });
+
+const retry = (attempt, extra = {}) => ({ type: "system", subtype: "api_retry", attempt, max_retries: 10, retry_delay_ms: 500 * attempt, error_status: 504, error: "server_error", session_id: "s", uuid: crypto.randomUUID(), ...extra });
+
+test("API retries of one request update a single notice with the status code", () => {
+  const conv = createConversation("s");
+  for (const attempt of [1, 2, 3]) applyMessage(conv, retry(attempt));
+  const notices = conv.items.filter((item) => item.kind === "notice");
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0].retry.attempt, 3);
+  assert.equal(notices[0].retry.status, 504);
+  assert.equal(notices[0].retry.delayMs, 1500);
+  assert.deepEqual(notices[0].retry.history, [504, 504, 504]);
+  assert.match(notices[0].text, /3\/10 \(HTTP 504\)/);
+});
+
+test("a retry after an answer starts a new notice", () => {
+  const conv = createConversation("s");
+  applyMessage(conv, retry(1));
+  applyMessage(conv, assistant("msg9", [{ type: "text", text: "ok" }], { stop_reason: "end_turn" }));
+  applyMessage(conv, retry(1, { error_status: 502 }));
+  const notices = conv.items.filter((item) => item.kind === "notice");
+  assert.equal(notices.length, 2);
+  assert.deepEqual(notices[1].retry.history, [502]);
+});

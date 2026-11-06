@@ -359,9 +359,31 @@ function applySystem(conv, msg, { live }) {
     case "compact_boundary":
       pushItem(conv, { kind: "boundary", text: "Conversation compacted", subtype: "compact", detail: msg.compact_metadata || null });
       break;
-    case "api_retry":
-      pushItem(conv, { kind: "notice", level: "warn", text: `API retry ${msg.attempt ?? ""}/${msg.max_retries ?? ""}`.trim(), detail: msg.error || msg.error_status, subtype: "retry" });
+    case "api_retry": {
+      // Every attempt of one failing request updates a single notice instead of stacking one line per attempt.
+      const last = conv.items.at(-1);
+      const again = last?.kind === "notice" && last.subtype === "retry";
+      const retry = {
+        attempt: msg.attempt,
+        max: msg.max_retries,
+        status: msg.error_status,
+        error: msg.error,
+        delayMs: msg.retry_delay_ms,
+        history: [...(again ? last.retry.history : []), msg.error_status ?? msg.error ?? "?"], // what each attempt got
+      };
+      const fields = {
+        text: `API retry ${retry.attempt ?? ""}/${retry.max ?? ""}${retry.status ? ` (HTTP ${retry.status})` : ""}`.trim(),
+        detail: JSON.stringify({ status: retry.status, error: retry.error, attempt: retry.attempt, maxRetries: retry.max, nextTryInMs: retry.delayMs, results: retry.history }, null, 2),
+        retry,
+      };
+      if (again) {
+        Object.assign(last, fields);
+        touch(conv, last);
+      } else {
+        pushItem(conv, { kind: "notice", level: "warn", subtype: "retry", ...fields });
+      }
       break;
+    }
     case "local_command_output":
       pushItem(conv, { kind: "output", text: msg.content || msg.output || "" });
       break;
