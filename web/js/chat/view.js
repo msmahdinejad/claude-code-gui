@@ -6,6 +6,9 @@ import { app, bus } from "../core/state.js";
 import { renderMarkdown, wireMarkdownActions } from "./markdown.js";
 import { ToolCard } from "./tools.js";
 import { isBusy } from "./reducer.js";
+import { isAuthProblem, openLoginDialog } from "../ui/login-dialog.js";
+
+const signInButton = () => h("button.btn.small", { type: "button", onclick: () => openLoginDialog() }, icon("unlock", 13), t("Sign in"));
 
 export class ChatView {
   constructor(root, { onAction } = {}) {
@@ -22,25 +25,66 @@ export class ChatView {
     this.nodes = new Map();
     this.cards = new Map();
     this.stick = true;
+    this.positions = new Map(); // conversation id -> where the reader was, so coming back lands on the same spot
     this.schedule = raf(() => this.flush());
     this.timer = null;
     this.scroller.addEventListener("scroll", () => {
-      const gap = this.scroller.scrollHeight - this.scroller.scrollTop - this.scroller.clientHeight;
-      this.stick = gap < 120;
+      const { scrollHeight, scrollTop, clientHeight } = this.scroller;
+      if (!clientHeight) return; // hidden or minimized: the numbers mean nothing
+      this.stick = scrollHeight - scrollTop - clientHeight < 120;
       this.jump.classList.toggle("hidden", this.stick);
     });
     wireMarkdownActions(this.col, (text) => copyText(text));
-    new ResizeObserver(() => this.stick && this.scrollToBottom()).observe(this.col);
+    const follow = () => { if (this.stick && this.scroller.clientHeight) this.scrollToBottom(); };
+    const resizes = new ResizeObserver(follow);
+    resizes.observe(this.col);
+    resizes.observe(this.scroller);
+  }
+
+  /** Remember where the reader is: at the end (and so following new messages), or on a particular message. */
+  rememberPosition() {
+    const id = this.conv?.id;
+    const box = this.scroller.getBoundingClientRect();
+    if (!id || !box.height) return; // nothing shown (hidden window, welcome screen): keep what we had
+    if (this.stick) {
+      this.positions.set(id, { stick: true });
+      return;
+    }
+    for (const [key, node] of this.nodes) {
+      const top = node.el.getBoundingClientRect().bottom - box.top;
+      if (top <= 1) continue;
+      this.positions.set(id, { stick: false, key, offset: node.el.getBoundingClientRect().top - box.top, top: this.scroller.scrollTop });
+      return;
+    }
+  }
+
+  restorePosition(position) {
+    if (!position || position.stick) {
+      this.stick = true;
+      this.scrollToBottom(true);
+      return;
+    }
+    this.stick = false;
+    const node = this.nodes.get(position.key);
+    if (node) {
+      const now = node.el.getBoundingClientRect().top - this.scroller.getBoundingClientRect().top;
+      this.scroller.scrollTop += now - position.offset;
+    } else {
+      this.scroller.scrollTop = position.top;
+    }
+    this.jump.classList.toggle("hidden", this.stick);
   }
 
   setConversation(conv) {
+    this.rememberPosition();
     this.conv = conv;
     for (const node of this.nodes.values()) node.el.remove();
     this.nodes.clear();
     this.cards.clear();
-    this.stick = true;
+    const position = this.positions.get(conv.id);
+    this.stick = !position || position.stick; // flush() must not jump to the end for a reader who was higher up
     this.flush();
-    this.scrollToBottom(true);
+    this.restorePosition(position);
   }
 
   sync() {
@@ -159,6 +203,24 @@ export class ChatView {
     ]);
   }
 
+  /** The user message that started the turn this reply belongs to. */
+  promptOf(item) {
+    const items = this.conv?.items || [];
+    for (let i = items.indexOf(item) - 1; i >= 0; i -= 1) if (items[i].kind === "user") return items[i];
+    return null;
+  }
+
+  replyMenu(anchor, item, text) {
+    const prompt = this.promptOf(item);
+    const uuid = [...(item.uuids || [])].at(-1);
+    menu(anchor, [
+      { label: t("Copy text"), icon: "copy", onClick: () => copyText(text) },
+      uuid ? { label: t("Fork from here"), icon: "split", onClick: () => this.onAction("fork", { uuid }) } : null,
+      prompt?.text ? { label: t("Ask again"), icon: "refresh", onClick: () => this.onAction("resend", prompt) } : null,
+      prompt?.uuid ? { label: t("Rewind files to before this reply"), icon: "undo", onClick: () => this.onAction("rewind", prompt) } : null,
+    ].filter(Boolean));
+  }
+
   renderAssistant(node, item, conv) {
     const state = node.state;
     if (!state.body) {
@@ -219,18 +281,26 @@ export class ChatView {
 
   renderFooter(footer, item, showActions = true) {
     const parts = [];
+    const said = item.blocks.filter((block) => block.type === "text").map((block) => block.text).join(" ");
+    // The CLI answers with a made-up message ("Login expired · Please run /login") when the OAuth session is gone.
+    const signedOut = item.error === "authentication_failed" || ((item.error || item.model === "<synthetic>") && isAuthProblem(said));
     if (item.error) {
-      parts.push(h("div.banner.error", icon("alert", 14), h("span", describeAssistantError(item.error))));
+      parts.push(h("div.banner.error", icon("alert", 14), h("span", describeAssistantError(item.error)), signedOut ? signInButton() : null));
+    } else if (signedOut && !item.streaming) {
+      parts.push(h("div.msg-actions.assistant", signInButton()));
     }
     if (item.aborted) parts.push(h("div.banner.info", icon("stop", 14), t("Interrupted")));
     if (!item.streaming && showActions) {
       const text = item.blocks.filter((block) => block.type === "text").map((block) => block.text).join("\n\n");
       if (text) {
+        const uuid = [...(item.uuids || [])].at(-1); // the last message of this reply: what a fork continues from
         parts.push(
           h(
             "div.msg-actions.assistant",
             h("button.mini", { type: "button", title: t("Reply to this message"), onclick: () => bus.emit("composer:quote", text) }, icon("reply", 13, "mirror-rtl"), h("span", t("Reply"))),
             h("button.mini", { type: "button", title: t("Copy"), onclick: () => copyText(text) }, icon("copy", 13), h("span", t("Copy"))),
+            uuid ? h("button.mini", { type: "button", title: t("Fork from here"), onclick: () => this.onAction("fork", { uuid }) }, icon("split", 13), h("span", t("Fork"))) : null,
+            h("button.mini", { type: "button", title: t("More"), onclick: (event) => this.replyMenu(event.currentTarget, item, text) }, icon("more-horizontal", 13)),
             item.model ? h("span.meta", item.model) : null,
             item.usage?.output_tokens ? h("span.meta", `${formatTokens(item.usage.output_tokens)} ${t("tokens out")}`) : null,
           ),
@@ -260,7 +330,7 @@ export class ChatView {
     if (out) bits.push(`${t("out")} ${formatTokens(out)}`);
     if (item.turns > 1) bits.push(t("{n} turns", { n: formatNumber(item.turns) }));
     const children = [];
-    if (item.isError) children.push(h("div.banner.error", icon("alert", 14), h("span", { dir: "auto" }, item.text || t("The turn ended with an error."))));
+    if (item.isError) children.push(h("div.banner.error", icon("alert", 14), h("span", { dir: "auto" }, item.text || t("The turn ended with an error.")), isAuthProblem(item.text) ? signInButton() : null));
     if (item.denials?.length) {
       children.push(h("div.banner.warn", icon("shield", 14), h("span", t("{n} tool call(s) were denied", { n: item.denials.length }))));
     }

@@ -10,6 +10,12 @@ Wheelhouse could not run the executable of the active profile. Open **Settings �
 Run `claude auth login` in a terminal (use your wrapper's name if you have one), or configure an API key / gateway /
 cloud provider in a profile ([examples](../examples)). Wheelhouse itself never asks for credentials.
 
+## "OAuth session expired" / "Login expired · Please run /login"
+The login of the profile ran out and could not be refreshed. Press **Sign in** on the error message, type `/login`, or use
+*Settings → Connection → Sign in*. Wheelhouse runs the CLI's own `auth login` for that profile: finish signing in on the page
+that opens in your browser and, if the page shows a code, paste it into the dialog. Nothing is stored by Wheelhouse. Messages
+that failed stay as they are; send them again once you are signed in (a session that still fails needs to be started again).
+
 ## Requests hang or fail with connection errors
 - A system-wide `HTTPS_PROXY` can break access to internal gateways. Add the host to the profile's `proxyBypass`.
 - Many `claude` processes sharing one config directory may invalidate a shared OAuth login. Close unused sessions and

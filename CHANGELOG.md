@@ -3,6 +3,23 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, minor versions may change the config format).
 
+## [0.5.0] - 2026-11-06
+
+### Added
+- **Sign in from the app**: when the OAuth login has expired ("OAuth session expired…", "Login expired · Please run
+  /login"), the error message has a *Sign in* button; `/login`, the command palette and *Settings → Connection → Sign in*
+  open the same dialog. It runs the CLI's own `auth login` for the profile, shows the sign-in link and takes the code the
+  page displays, so no terminal is needed.
+- **Earlier messages with Up/Down**: in the message box, Up (from the start of the box) steps back through the messages sent
+  in the conversation and Down steps forward again, back to what you were typing.
+- **Fork** and a *More* menu (copy, fork, ask again, rewind files) on every finished reply.
+
+### Fixed
+- The conversation jumped to the last message whenever the window came back to the front (and when switching sessions),
+  losing the place you were reading. Every conversation now keeps its scroll position, also across a reload of that
+  conversation; the timeline is only rebuilt when another conversation is shown.
+- After *Reply* the message box takes the focus reliably, so you can type at once.
+
 ## [0.4.1] - 2026-11-03
 
 ### Fixed

@@ -20,6 +20,7 @@ export function mountChat(chatRoot, dockRoot) {
     if (!status.ok) banner = h("div.banner.error", icon("alert", 14), h("span", { dir: "auto" }, t("Claude Code could not be started: {error}", { error: status.error || "" })));
     else if (status.loggedIn === false && !app.config?.gateway) banner = h("div.banner.warn", icon("alert", 14), h("span", { dir: "auto" }, t("You are not signed in. Run `{cli} auth login` in a terminal, or point a connection profile at an API key or gateway.", { cli: app.config?.cli || "claude" })));
     if (!banner) return;
+    if (status.ok) banner.append(h("button.btn.small.primary", { type: "button", onclick: () => import("./login-dialog.js").then((m) => m.openLoginDialog()) }, t("Sign in")));
     banner.append(h("button.btn.small", { type: "button", onclick: () => import("./settings.js").then((m) => m.openSettings("connection")) }, t("Open connection settings")));
     notice.replaceChildren(banner);
     notice.classList.remove("hidden");
@@ -81,9 +82,13 @@ export function mountChat(chatRoot, dockRoot) {
 
   function switchConversation() {
     const conv = currentConv();
-    cards.forEach((el) => el.remove());
-    cards.clear();
-    if (conv) view.setConversation(conv);
+    // "current" is also emitted for a rename, a reload or the window coming back: only another conversation (or a
+    // freshly loaded copy of it) rebuilds the timeline, and then the reader keeps their place.
+    if (view.conv !== conv) {
+      cards.forEach((el) => el.remove());
+      cards.clear();
+      if (conv) view.setConversation(conv);
+    }
     renderDock();
     renderWelcome();
   }

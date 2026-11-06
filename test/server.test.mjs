@@ -174,3 +174,13 @@ test("unknown API endpoints return 404 JSON", async () => {
   assert.equal(response.status, 404);
   assert.ok((await response.json()).error);
 });
+
+test("sign-in routes: unknown profile, unknown flow and foreign origins are refused", async () => {
+  const unknown = await api("/api/auth/login", { method: "POST", body: JSON.stringify({ name: "nope" }) });
+  assert.equal(unknown.status, 400);
+  assert.match((await unknown.json()).error, /Unknown profile/);
+  assert.equal((await api("/api/auth/login/not-a-flow")).status, 404);
+  assert.equal((await api("/api/auth/login/not-a-flow/code", { method: "POST", body: JSON.stringify({ code: "x" }) })).status, 404);
+  const foreign = await fetch(`${base}/api/auth/login`, { method: "POST", headers: { origin: "https://evil.example", "content-type": "application/json" }, body: "{}" });
+  assert.equal(foreign.status, 403);
+});

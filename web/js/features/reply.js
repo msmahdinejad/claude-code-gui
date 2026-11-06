@@ -32,9 +32,9 @@ function show() {
       type: "button",
       onmousedown: (event) => event.preventDefault(), // keep the selection while clicking
       onclick: () => {
-        bus.emit("composer:quote", picked.text);
-        getSelection()?.removeAllRanges();
+        getSelection()?.removeAllRanges(); // before the composer takes the focus, so clearing it cannot steal it back
         hide();
+        bus.emit("composer:quote", picked.text);
       },
     },
     icon("reply", 13, "mirror-rtl"),

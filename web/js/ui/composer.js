@@ -47,6 +47,7 @@ export function mountComposer(host) {
     // "current" is also emitted for a rename, a reload or the window coming back: only a real switch resets the input.
     if (shownId !== app.currentId) {
       shownId = app.currentId;
+      recall = null;
       try { textarea.value = localStorage.getItem(draftKey()) || ""; } catch { textarea.value = ""; }
       images = [];
       renderAttachments();
@@ -212,6 +213,7 @@ export function mountComposer(host) {
   }
 
   function clearInput() {
+    recall = null;
     textarea.value = "";
     images = [];
     renderAttachments();
@@ -332,7 +334,45 @@ export function mountComposer(host) {
     closeAc();
   }
 
+  // ---- earlier messages: Up/Down in the box walks through what was sent in this conversation, like the CLI ----
+  let recall = null; // { index, draft } while stepping through earlier messages; draft is what was being typed
+
+  function sentMessages() {
+    const texts = (currentConv()?.items || []).filter((item) => item.kind === "user" && item.text).map((item) => item.text);
+    return texts.filter((text, index) => text !== texts[index - 1]);
+  }
+
+  function recallMessage(direction) {
+    const history = sentMessages();
+    const start = textarea.selectionStart;
+    const collapsed = start === textarea.selectionEnd;
+    if (!collapsed) return false;
+    if (direction < 0) {
+      // Only from the very start of the box (Up first moves the caret there), or while already stepping.
+      if (!recall && start !== 0) return false;
+      if (recall && textarea.value.slice(0, start).includes("\n")) return false;
+      if (!history.length) return false;
+      if (!recall) recall = { index: history.length, draft: textarea.value };
+      recall.index = Math.max(0, recall.index - 1);
+    } else {
+      if (!recall || textarea.value.slice(start).includes("\n")) return false;
+      recall.index += 1;
+    }
+    const restored = recall.index >= history.length;
+    textarea.value = restored ? recall.draft : history[recall.index];
+    if (restored) recall = null;
+    closeAc();
+    autosize();
+    refresh();
+    // Going back leaves the caret at the top, so the next Up keeps stepping; going forward leaves it at the end.
+    const caret = direction < 0 ? 0 : textarea.value.length;
+    textarea.setSelectionRange(caret, caret);
+    textarea.scrollTop = direction < 0 ? 0 : textarea.scrollHeight;
+    return true;
+  }
+
   textarea.addEventListener("input", () => {
+    recall = null;
     autosize();
     saveDraft();
     refresh();
@@ -344,6 +384,12 @@ export function mountComposer(host) {
       if (event.key === "ArrowUp") { event.preventDefault(); moveAc(-1); return; }
       if (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) { event.preventDefault(); ac.onPick(ac.items[ac.index]); return; }
       if (event.key === "Escape") { event.preventDefault(); closeAc(); return; }
+    }
+    if ((event.key === "ArrowUp" || event.key === "ArrowDown") && !event.isComposing && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      if (recallMessage(event.key === "ArrowUp" ? -1 : 1)) {
+        event.preventDefault();
+        return;
+      }
     }
     if (event.key === "Enter" && !event.isComposing && !event.shiftKey) {
       const ctrl = event.ctrlKey || event.metaKey;
@@ -395,11 +441,18 @@ export function mountComposer(host) {
     refresh();
   }
 
+  // Focus the box now and once more after the click that asked for it has finished (a button that was just clicked
+  // can take the focus back), so one can type straight away.
+  function focusInput() {
+    textarea.focus({ preventScroll: true });
+    requestAnimationFrame(() => { if (document.activeElement !== textarea) textarea.focus({ preventScroll: true }); });
+  }
+
   bus.on("composer:fill", (text) => {
     textarea.value = text;
     autosize();
     saveDraft();
-    textarea.focus();
+    focusInput();
     refresh();
   });
   // Reply: add a quote of a message (or of the selected text) above what is being typed.
@@ -410,12 +463,12 @@ export function mountComposer(host) {
     textarea.value = `${before ? `${before}\n\n` : ""}${quote}\n\n`;
     autosize();
     saveDraft();
-    textarea.focus();
+    focusInput();
     textarea.setSelectionRange(textarea.value.length, textarea.value.length);
     textarea.scrollTop = textarea.scrollHeight;
     refresh();
   });
-  bus.on("composer:focus", () => textarea.focus());
+  bus.on("composer:focus", focusInput);
   bus.on("current", () => {
     loadDraft();
     refresh();

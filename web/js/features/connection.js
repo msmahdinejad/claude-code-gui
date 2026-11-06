@@ -3,8 +3,11 @@ import { h, toast, errorMessage, confirmDialog } from "../core/dom.js";
 import { icon } from "../core/icons.js";
 import { t } from "../core/i18n.js";
 
-import { registerSettingsSection } from "../core/registry.js";
+import { registerCommand, registerSettingsSection } from "../core/registry.js";
 import { api } from "../core/api.js";
+import { openLoginDialog } from "../ui/login-dialog.js";
+
+registerCommand({ id: "sign-in", title: "Sign in again", icon: "unlock", keywords: ["login", "oauth", "expired", "account"], slash: "login", run: () => openLoginDialog() });
 
 const DOCS = "https://github.com/msmahdinejad/claude-code-gui/blob/main/docs/CONFIGURATION.md";
 
@@ -39,6 +42,7 @@ registerSettingsSection({
                   try { tests.set(profile.name, await api.post("/api/profile/test", { name: profile.name })); } catch (error) { tests.set(profile.name, { ok: false, error: errorMessage(error) }); }
                   out.replaceChildren(resultLine(tests.get(profile.name)));
                 } }, t("Test")),
+                h("button.btn.small", { type: "button", title: t("Sign in again, for example when the login has expired"), onclick: () => openLoginDialog(profile.name) }, icon("unlock", 13), t("Sign in")),
                 !active ? h("button.btn.small.primary", { type: "button", onclick: async () => {
                   const ok = await confirmDialog({ title: t("Switch connection"), message: t("Running sessions stop and the list reloads from the other profile's configuration directory."), confirmLabel: t("Switch") });
                   if (!ok) return;

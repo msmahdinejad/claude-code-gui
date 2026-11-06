@@ -88,6 +88,7 @@ openSettings(id), openInspector(id), runPrompt(text), fillComposer(text) }`.
 `GET /api/status` (live counts for the tray), `GET /api/notifications?since=` (what the tray announces),
 `POST /api/{presence,notify-test,focus}`, `POST /api/shutdown` (stop the server),
 `GET /api/profile`, `POST /api/profile/{test,switch}`, `GET /api/profile/status`, `POST /api/pick-folder`,
+`POST /api/auth/login` (runs the CLI's `auth login` for a profile; `GET /api/auth/login/:id`, `POST …/:id/code|cancel`),
 `POST /api/workspaces/new`, `GET /api/features`. Feature modules add more under `server/lib/routes/`.
 
 SDK types for everything the SDK exposes live in `node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts`.
