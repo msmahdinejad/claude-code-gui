@@ -170,8 +170,7 @@ export class ClaudeUpdater extends EventEmitter {
     const own = this.profileBin();
     const installed = await this.version(own);
     if (installed) this.state.installed = installed;
-    let names = [];
-    try { names = await readdir(this.root); } catch { /* none yet */ }
+    const names = await readdir(this.root).catch(() => []); // none yet
     const best = names.filter((name) => VERSION.test(name)).sort(compareVersions).reverse();
     for (const version of best) {
       if (!newer(version, installed)) break;
@@ -290,8 +289,7 @@ export class ClaudeUpdater extends EventEmitter {
 
   /** Remove our copies that are not in use. */
   async prune() {
-    let names = [];
-    try { names = await readdir(this.root); } catch { return; }
+    const names = await readdir(this.root).catch(() => []);
     for (const name of names) {
       const bin = binIn(join(this.root, name));
       const used = [...this.manager.sessions.values()].some((session) => session.alive && session.bin === bin);
