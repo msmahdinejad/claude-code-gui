@@ -178,6 +178,8 @@ export class ClaudeSession extends EventEmitter {
 
   async start() {
     if (this.query) return;
+    await this.manager.ready();
+    if (this.query) return; // another caller started it while we waited
     this.startError = null;
     this.setState("starting");
     this.input = new AsyncQueue();
@@ -481,8 +483,21 @@ export class SessionManager extends EventEmitter {
     this.config = config;
     this.prefs = prefs;
     this.sessions = new Map();
+    this.gate = null;
     this.reaper = setInterval(() => this.reapIdle(), 60_000);
     this.reaper.unref();
+  }
+
+  /** Hold back process starts until `promise` settles (the Claude Code files are being replaced). */
+  hold(promise) {
+    const gate = promise.finally(() => {
+      if (this.gate === gate) this.gate = null;
+    });
+    this.gate = gate;
+  }
+
+  async ready() {
+    while (this.gate) await this.gate;
   }
 
   get(id) {

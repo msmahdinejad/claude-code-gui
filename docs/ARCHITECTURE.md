@@ -28,6 +28,7 @@ server/lib/fs-git.mjs       fs list/read/write, git info/diff/log/actions, @file
 server/lib/claude-files.mjs settings.json / CLAUDE.md / agents|skills|commands|output-styles files per scope
 server/lib/ui-store.mjs     UI-owned state (pins, per-session meta, prefs, recents) in ~/.wheelhouse
 server/lib/ui-launch.mjs    open the UI in the default browser or a standalone Chrome/Edge window
+server/lib/claude-updater.mjs keeps the profile's Claude Code up to date (download, swap when idle, verify, roll back)
 server/lib/tray.mjs         starts the Windows tray host (--tray); server/tray/tray.ps1 is the host itself
 server/lib/routes/*.mjs     EXTENSION POINT: server routes per feature (auto-loaded)
 web/index.html              shell
@@ -89,6 +90,7 @@ openSettings(id), openInspector(id), runPrompt(text), fillComposer(text) }`.
 `POST /api/{presence,notify-test,focus}`, `POST /api/shutdown` (stop the server),
 `GET /api/profile`, `POST /api/profile/{test,switch}`, `GET /api/profile/status`, `POST /api/pick-folder`,
 `POST /api/auth/login` (runs the CLI's `auth login` for a profile; `GET /api/auth/login/:id`, `POST …/:id/code|cancel`),
+`GET /api/update`, `POST /api/update/{check,apply}` (Claude Code auto-update, see `server/lib/claude-updater.mjs`),
 `POST /api/workspaces/new`, `GET /api/features`. Feature modules add more under `server/lib/routes/`.
 
 SDK types for everything the SDK exposes live in `node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts`.

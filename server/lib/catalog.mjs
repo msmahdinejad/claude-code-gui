@@ -36,6 +36,7 @@ export class Catalog {
   async load(cwd) {
     const live = [...this.manager.sessions.values()].find((session) => session.alive && session.cwd === cwd && session.initResult);
     if (live) return this.fromLive(live);
+    await this.manager.ready?.();
     const input = new AsyncQueue();
     const q = sdkQuery({
       prompt: input,

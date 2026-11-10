@@ -3,6 +3,18 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, minor versions may change the config format).
 
+## [0.6.0] - 2026-11-10
+
+### Added
+- **Automatic Claude Code updates**: Claude Code lists only the models it knew when it was built, so a new model (such as
+  Fable 5.2, added in Claude Code 2.1.322) is missing from the picker until the CLI is updated, and a profile that sets
+  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` also switches off the CLI's own updater. Wheelhouse now checks the npm
+  registry every few hours, downloads a newer version in the background and installs it once no session is working or
+  waiting (idle Claude processes are stopped for a few seconds and start again on the next message). The new install is
+  verified with `claude --version` and the old version is put back if it does not run. The model list is reloaded
+  afterwards and the page says so. *Settings → Updates* has the switch (on by default), the installed/newest versions,
+  *Check now* and *Update now*. `updateChannel: "stable"` in the UI preferences follows the `stable` tag instead of `latest`.
+
 ## [0.5.1] - 2026-11-06
 
 ### Changed

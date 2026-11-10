@@ -16,6 +16,14 @@ The login of the profile ran out and could not be refreshed. Press **Sign in** o
 that opens in your browser and, if the page shows a code, paste it into the dialog. Nothing is stored by Wheelhouse. Messages
 that failed stay as they are; send them again once you are signed in (a session that still fails needs to be started again).
 
+## A new model is missing from the model list
+The list is the one Claude Code reports, and Claude Code only knows the models that existed when it was built (a gateway
+does not change that). Update Claude Code: *Settings → Updates → Update now*, or `npm install -g @anthropic-ai/claude-code@latest`.
+Wheelhouse also does this by itself while nothing is running (*Settings → Updates*). If it does not, the page shows why
+(for example that the registry could not be reached, which behind a proxy needs `HTTPS_PROXY` in the environment
+Wheelhouse starts with). A file that is in use can block the swap; the old version is then kept and it is tried again an
+hour later.
+
 ## Requests hang or fail with connection errors
 - A system-wide `HTTPS_PROXY` can break access to internal gateways. Add the host to the profile's `proxyBypass`.
 - Many `claude` processes sharing one config directory may invalidate a shared OAuth login. Close unused sessions and
