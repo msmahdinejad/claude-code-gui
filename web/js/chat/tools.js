@@ -243,23 +243,56 @@ export function todoList(todos) {
   );
 }
 
+/** Status of a subagent: its background task when there is one (the Agent call itself returns at once when backgrounded). */
+export function agentStatus(tool) {
+  const status = tool.task?.status;
+  if (!status) return null;
+  if (["running", "pending", "in_progress"].includes(status)) return "running";
+  if (status === "completed") return "done";
+  if (["failed", "error"].includes(status)) return "error";
+  if (["killed", "stopped", "cancelled"].includes(status)) return "interrupted";
+  return null;
+}
+
+/** "17 tools · 19m 32s" from a task's progress counters. */
+export function taskMeta(task) {
+  const usage = task?.usage || {};
+  const bits = [];
+  if (usage.tool_uses) bits.push(t("{n} tools", { n: usage.tool_uses }));
+  if (usage.duration_ms) bits.push(formatDuration(usage.duration_ms));
+  return bits.join(" · ");
+}
+
 registerToolRenderer(["Task", "Agent"], {
   icon: "bot",
   title: (tool) => tool.input?.subagent_type || t("Subagent"),
-  summary: (tool) => clip(tool.input?.description || ""),
+  status: agentStatus,
+  // While it works, show what it is doing now next to what it was asked to do.
+  summary: (tool) => {
+    const what = tool.input?.description || "";
+    const now = agentStatus(tool) === "running" ? tool.task?.summary : "";
+    return clip(now && now !== what ? `${what} — ${now}` : what);
+  },
+  meta: (tool) => (tool.task ? taskMeta(tool.task) || null : null),
   body(tool, ctx) {
     const parts = [];
     if (tool.input?.prompt) parts.push(section(t("Prompt"), h("div.muted.pre", { dir: "auto" }, clip(tool.input.prompt, 1200))));
     const task = tool.task;
     if (task) {
+      const state = agentStatus(tool);
       parts.push(
         h(
           "div.task-line",
-          icon(task.status === "completed" ? "check-circle" : task.status === "failed" ? "x-circle" : "loader", 14, task.status === "running" ? "spin" : ""),
-          h("span", task.summary || task.description || task.status),
+          icon(state === "done" ? "check-circle" : state === "error" ? "x-circle" : state === "interrupted" ? "stop" : "loader", 14, state === "running" ? "spin" : ""),
+          h("span", { dir: "auto" }, task.summary || task.description || task.status),
           task.lastTool ? h("span.muted", ` · ${task.lastTool}`) : null,
+          taskMeta(task) ? h("span.muted", ` · ${taskMeta(task)}`) : null,
         ),
       );
+    }
+    // What the subagent wrote along the way (its own messages, not the final report).
+    if (tool.notes?.length) {
+      parts.push(section(t("Subagent messages"), h("div.sub-notes", tool.notes.slice(-4).map((note) => h("div.markdown", { html: renderMarkdown(note) })))));
     }
     if (tool.children?.length) {
       parts.push(
@@ -273,7 +306,8 @@ registerToolRenderer(["Task", "Agent"], {
       );
     }
     const text = textOf(tool);
-    if (text) parts.push(section(t("Report"), h("div.markdown", { html: renderMarkdown(text) })));
+    // A backgrounded subagent's call only answers "launched"; its work is what is shown above.
+    if (text && !/^s*Async agent launched/i.test(text)) parts.push(section(t("Report"), h("div.markdown", { html: renderMarkdown(text) })));
     return parts;
   },
   defaultOpen: (tool) => tool.status === "running",
@@ -365,14 +399,16 @@ export class ToolCard {
     this.renderedV = tool.v;
     const renderer = findToolRenderer(tool.name) || fallback;
     const open = this.isOpen();
-    this.el.className = `tool status-${tool.status}${tool.awaiting ? " awaiting" : ""}${open ? " open" : ""}`;
+    // A renderer can report a status other than the tool call's own (a background subagent outlives its Agent call).
+    const status = renderer.status?.(tool) || tool.status;
+    this.el.className = `tool status-${status}${tool.awaiting ? " awaiting" : ""}${open ? " open" : ""}`;
     this.el.dataset.tool = tool.name;
     this.el.dataset.id = tool.id;
-    const spinning = tool.status === "running" || tool.status === "streaming";
+    const spinning = status === "running" || status === "streaming";
     const title = renderer.title(tool);
     const summary = renderer.summary?.(tool) || "";
     const took = tool.endedAt && tool.startedAt ? tool.endedAt - tool.startedAt : 0;
-    const elapsed = took >= 1000 ? formatDuration(took) : tool.progress?.elapsed ? `${Math.round(tool.progress.elapsed)}s` : "";
+    const elapsed = renderer.meta?.(tool) ?? (took >= 1000 ? formatDuration(took) : tool.progress?.elapsed ? `${Math.round(tool.progress.elapsed)}s` : "");
     const head = h(
       "button.tool-head",
       { type: "button", "aria-expanded": String(open), onclick: () => this.toggle() },
@@ -381,7 +417,7 @@ export class ToolCard {
       h("span.tool-sub", { dir: "auto" }, summary),
       tool.awaiting ? h("span.badge.warn", t("Needs approval")) : null,
       elapsed ? h("span.tool-meta", elapsed) : null,
-      h("span.tool-state", icon(STATUS_ICON[tool.status] || "circle", 14, spinning ? "spin" : "")),
+      h("span.tool-state", icon(STATUS_ICON[status] || "circle", 14, spinning ? "spin" : "")),
       icon("chevron-down", 14, "tool-chevron"),
     );
     this.head?.replaceWith(head);

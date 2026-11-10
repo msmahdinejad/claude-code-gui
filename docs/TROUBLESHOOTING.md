@@ -19,7 +19,8 @@ that failed stay as they are; send them again once you are signed in (a session 
 ## A new model is missing from the model list
 The list is the one Claude Code reports, and Claude Code only knows the models that existed when it was built (a gateway
 does not change that). Update Claude Code: *Settings → Updates → Update now*, or `npm install -g @anthropic-ai/claude-code@latest`.
-Wheelhouse also does this by itself while nothing is running (*Settings → Updates*). If it does not, the page shows why
+Wheelhouse also does this by itself (*Settings → Updates*): the new version is used for new sessions as soon as it is
+downloaded; a session that was already running keeps its version until it restarts. If it does not, the page shows why
 (for example that the registry could not be reached, which behind a proxy needs `HTTPS_PROXY` in the environment
 Wheelhouse starts with). A file that is in use can block the swap; the old version is then kept and it is tried again an
 hour later.

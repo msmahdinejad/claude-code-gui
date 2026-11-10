@@ -184,6 +184,7 @@ export class ClaudeSession extends EventEmitter {
     this.setState("starting");
     this.input = new AsyncQueue();
     const options = this.buildOptions();
+    this.bin = options.pathToClaudeCodeExecutable || null; // which Claude Code this process runs (updates switch it)
     try {
       this.query = sdkQuery({ prompt: this.input, options });
     } catch (error) {
@@ -219,6 +220,7 @@ export class ClaudeSession extends EventEmitter {
         this.query = null;
         this.input = null;
         this.cancelAllPending("session closed");
+        this.backgroundTasks = 0;
         this.setState("closed");
         this.emitMessage({ type: "wh_closed" });
       }
@@ -232,6 +234,9 @@ export class ClaudeSession extends EventEmitter {
       this.meta.model = this.meta.model && this.meta.model !== "default" ? this.meta.model : msg.model;
     } else if (msg.type === "system" && msg.subtype === "session_state_changed") {
       this.setState(msg.state);
+    } else if (msg.type === "system" && msg.subtype === "background_tasks_changed") {
+      // Subagents / commands that keep running after the turn: the process must not be stopped while they work.
+      this.backgroundTasks = Array.isArray(msg.tasks) ? msg.tasks.length : 0;
     } else if (msg.type === "result") {
       this.lastResult = {
         is_error: msg.is_error,
@@ -263,6 +268,7 @@ export class ClaudeSession extends EventEmitter {
     const input = this.input;
     this.input = null;
     this.cancelAllPending("session closed");
+    this.backgroundTasks = 0;
     try { input?.close(); } catch { /* already closed */ }
     try { q?.close(); } catch { /* already closed */ }
     this.setState("closed");
@@ -527,7 +533,7 @@ export class SessionManager extends EventEmitter {
   reapIdle() {
     const now = Date.now();
     for (const session of this.sessions.values()) {
-      if (!session.alive || session.state === "running" || session.pending.size) continue;
+      if (!session.alive || session.state === "running" || session.pending.size || session.backgroundTasks) continue;
       if (session.listenerCount("event") > 0) continue;
       if (now - session.lastActive > IDLE_CLOSE_MS) session.close();
     }

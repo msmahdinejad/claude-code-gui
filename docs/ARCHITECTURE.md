@@ -28,7 +28,7 @@ server/lib/fs-git.mjs       fs list/read/write, git info/diff/log/actions, @file
 server/lib/claude-files.mjs settings.json / CLAUDE.md / agents|skills|commands|output-styles files per scope
 server/lib/ui-store.mjs     UI-owned state (pins, per-session meta, prefs, recents) in ~/.wheelhouse
 server/lib/ui-launch.mjs    open the UI in the default browser or a standalone Chrome/Edge window
-server/lib/claude-updater.mjs keeps the profile's Claude Code up to date (download, swap when idle, verify, roll back)
+server/lib/claude-updater.mjs keeps Claude Code up to date (own copy used at once; the profile's install swapped when idle)
 server/lib/tray.mjs         starts the Windows tray host (--tray); server/tray/tray.ps1 is the host itself
 server/lib/routes/*.mjs     EXTENSION POINT: server routes per feature (auto-loaded)
 web/index.html              shell

@@ -34,8 +34,8 @@ watch();
 const PHASES = {
   checking: "Looking for a newer version…",
   downloading: "Downloading the new version in the background…",
-  waiting: "Downloaded; it is installed as soon as no session is working.",
-  installing: "Installing…",
+  waiting: "The new version is in use. The Claude Code your terminal runs is updated as soon as no session is working.",
+  installing: "Updating the Claude Code your terminal runs…",
 };
 
 registerSettingsSection({
@@ -58,7 +58,8 @@ registerSettingsSection({
         }
       });
       const bits = [
-        status.installed ? `${t("Installed")}: ${status.installed}` : null,
+        status.active ? `${t("In use")}: ${status.active}` : null,
+        status.installed && status.installed !== status.active ? `${t("Terminal")}: ${status.installed}` : null,
         status.latest ? `${t("Newest")}: ${status.latest}` : null,
         status.checkedAt ? `${t("Last checked")}: ${new Date(status.checkedAt).toLocaleTimeString()}` : null,
       ].filter(Boolean);
@@ -68,10 +69,10 @@ registerSettingsSection({
           ? h("div.banner.info", icon("refresh", 14), h("span", t(PHASES[status.phase])))
           : status.updateAvailable
             ? h("div.banner.info", icon("download", 14), h("span", t("A newer version is available.")))
-            : status.installed ? h("div.banner.info", icon("check-circle", 14), h("span", t("Claude Code is up to date."))) : null;
+            : status.active ? h("div.banner.info", icon("check-circle", 14), h("span", t("Claude Code is up to date."))) : null;
       host.replaceChildren(
         h("div.group", h("h3", t("Claude Code")),
-          h("div.setting-row", h("div.grow", h("strong", t("Update automatically")), h("small", t("When a newer version is out, it is downloaded in the background and installed once no session is working. Idle sessions are stopped for a few seconds and continue on your next message."))), h("label.switch", input)),
+          h("div.setting-row", h("div.grow", h("strong", t("Update automatically")), h("small", t("When a newer version is out it is downloaded in the background and used for every new session right away; sessions that are working keep going. The Claude Code your terminal runs is updated once no session is working."))), h("label.switch", input)),
           h("div.setting-row", h("div.grow", h("strong", t("Version")), h("small", { dir: "ltr" }, bits.join(" · ") || "…")), h("div", { style: { display: "flex", gap: "8px" } },
             h("button.btn", { type: "button", onclick: async () => { try { draw(await api.post("/api/update/check", {})); } catch (error) { toast(errorMessage(error), "error"); } } }, t("Check now")),
             status.updateAvailable ? h("button.btn.primary", { type: "button", onclick: async () => { try { draw(await api.post("/api/update/apply", {})); schedule(); } catch (error) { toast(errorMessage(error), "error"); } } }, t("Update now")) : null,

@@ -4,7 +4,7 @@ import { icon } from "../core/icons.js";
 import { t } from "../core/i18n.js";
 import { app, bus } from "../core/state.js";
 import { renderMarkdown, wireMarkdownActions } from "./markdown.js";
-import { ToolCard } from "./tools.js";
+import { ToolCard, taskMeta } from "./tools.js";
 import { isBusy } from "./reducer.js";
 import { isAuthProblem, openLoginDialog } from "../ui/login-dialog.js";
 import { describeApiFailure, failureAdvice, seconds } from "./api-errors.js";
@@ -18,7 +18,8 @@ export class ChatView {
     this.scroller = h("div.chat-scroll", { tabindex: "-1" });
     this.col = h("div.chat-col");
     this.working = h("div.working.hidden");
-    this.col.append(this.working);
+    this.background = h("div.bg-work.hidden"); // subagents and commands still running after the turn ended
+    this.col.append(this.working, this.background);
     this.scroller.append(this.col);
     this.jump = h("button.jump-latest.hidden", { type: "button", onclick: () => this.scrollToBottom(true) }, icon("arrow-down", 14), t("Latest"));
     root.append(this.scroller, this.jump);
@@ -140,6 +141,7 @@ export class ChatView {
       previous = item;
     }
     this.updateWorking(conv);
+    this.updateBackground(conv);
     if (this.stick) this.scrollToBottom();
   }
 
@@ -160,6 +162,37 @@ export class ChatView {
     };
     update();
     if (!this.timer) this.timer = setInterval(() => this.conv && update(), 1000);
+  }
+
+  /** One line per background task (subagent or command) that is still running; a click shows its card. */
+  updateBackground(conv) {
+    const running = [...conv.tasks.values()].filter((task) => ["running", "pending", "in_progress"].includes(task.status));
+    this.background.classList.toggle("hidden", !running.length);
+    if (!running.length) return;
+    const show = (task) => {
+      const card = task.toolUseId && this.cards.get(task.toolUseId);
+      if (!card) return;
+      if (!card.isOpen()) card.toggle();
+      card.el.scrollIntoView({ block: "center", behavior: "smooth" });
+      card.el.classList.add("flash");
+      setTimeout(() => card.el.classList.remove("flash"), 1200);
+    };
+    this.background.replaceChildren(
+      h("div.bg-work-head", icon("loader", 13, "spin"), h("span", t("{n} running in the background", { n: running.length }))),
+      ...running.map((task) => {
+        const tool = task.toolUseId ? conv.tools.get(task.toolUseId) : null;
+        const agent = task.taskType === "local_agent" || tool?.name === "Agent" || tool?.name === "Task";
+        const what = (agent ? tool?.input?.description : null) || task.description || "";
+        const now = task.summary && task.summary !== what ? task.summary : "";
+        return h(
+          "button.bg-work-row",
+          { type: "button", title: t("Show"), onclick: () => show(task) },
+          icon(agent ? "bot" : "terminal", 13),
+          h("span.grow", { dir: "auto" }, h("strong", what || t("Background task")), now ? h("span.muted", ` — ${now}`) : null),
+          taskMeta(task) ? h("span.muted.small", taskMeta(task)) : null,
+        );
+      }),
+    );
   }
 
   renderItem(node, item, conv) {

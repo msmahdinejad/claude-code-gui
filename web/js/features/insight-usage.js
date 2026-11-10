@@ -45,7 +45,9 @@ function resetLabel(iso) {
 
 function limitRow(label, limit) {
   if (!limit || limit.utilization === null || limit.utilization === undefined) return null;
-  const value = limit.utilization <= 1 && limit.utilization > 0 ? limit.utilization * 100 : limit.utilization;
+  // The usage endpoint reports a percentage (0-100). It used to be read as a fraction when it was at most 1, so a window
+  // that was 1% used showed as 100% used.
+  const value = Number(limit.utilization);
   return h("div.usage-limit", h("div.row-inline", h("span.grow", label), h("strong", pct(value)), h("span.muted.small", resetLabel(limit.resets_at))), bar(value, value > 90 ? "danger" : value > 70 ? "warn" : ""));
 }
 

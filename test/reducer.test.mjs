@@ -125,3 +125,16 @@ test("a retry after an answer starts a new notice", () => {
   assert.equal(notices.length, 2);
   assert.deepEqual(notices[1].retry.history, [502]);
 });
+
+test("background tasks still running end with the process that ran them", () => {
+  const conv = createConversation("s");
+  const sys = (subtype, extra) => ({ type: "system", subtype, session_id: "s", uuid: crypto.randomUUID(), ...extra });
+  applyMessage(conv, sys("init", { model: "m" }));
+  applyMessage(conv, sys("task_started", { task_id: "t1", tool_use_id: "toolu_1", task_type: "local_agent", description: "work" }));
+  applyMessage(conv, sys("task_started", { task_id: "t2", tool_use_id: "toolu_2", task_type: "local_bash", description: "cmd" }));
+  applyMessage(conv, sys("task_notification", { task_id: "t2", tool_use_id: "toolu_2", status: "completed" }));
+  assert.equal(conv.tasks.get("t1").status, "running");
+  applyMessage(conv, sys("init", { model: "m" })); // a new process
+  assert.equal(conv.tasks.get("t1").status, "stopped");
+  assert.equal(conv.tasks.get("t2").status, "completed");
+});

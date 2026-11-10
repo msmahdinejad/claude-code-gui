@@ -1,23 +1,25 @@
-// Keeps Claude Code up to date while nothing is running (see ../claude-updater.mjs).
+// Keeps Claude Code up to date (see ../claude-updater.mjs).
 import { ClaudeUpdater } from "../claude-updater.mjs";
+import { resolveCommand } from "../config.mjs";
 
 export default function register({ route, config, manager, catalog, store }) {
   const updater = new ClaudeUpdater({
     config,
     manager,
     catalog,
+    // The active profile's own executable, whatever Wheelhouse currently runs.
+    profileBin: () => resolveCommand(config.profiles[config.activeProfile]?.command, process.env).path || null,
     enabled: () => store.data.prefs.autoUpdateClaude !== false,
     channel: () => (store.data.prefs.updateChannel === "stable" ? "stable" : "latest"),
   });
-  updater.start();
-  // The first look at the installed version, so Settings has something to show before the first scheduled check.
-  updater.check().catch(() => {});
+  // A copy installed earlier is used straight away; then look at the registry.
+  updater.useInstalled().catch(() => {}).finally(() => updater.start());
 
   route("GET", "/api/update", async () => updater.status());
-  // Look at the registry now (and, when there is something newer, download it and install it once nothing is working).
+  // Look at the registry now (and install a newer version when there is one).
   route("POST", "/api/update/check", async () => {
-    await updater.check();
-    if (updater.isEnabled()) updater.tick().catch(() => {});
+    const status = await updater.check();
+    if (updater.isEnabled() && status.updateAvailable) updater.tick().catch(() => {});
     return updater.status();
   });
   // "Update now": the same, even with the automatic switch off.

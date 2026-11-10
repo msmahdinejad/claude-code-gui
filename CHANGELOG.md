@@ -3,6 +3,29 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, minor versions may change the config format).
 
+## [0.6.1] - 2026-11-10
+
+### Added
+- **Background subagents are visible**: a subagent started in the background used to show as a closed, finished
+  "Agent" card while it was still working. Its card now follows the subagent itself: a spinner while it runs, what it is
+  doing right now, how many tools it used and for how long; opened, it shows the subagent's own messages and tool calls.
+  A *running in the background* strip under the conversation lists every subagent and background command that is still
+  working after the turn ended; a click opens its card.
+
+### Changed
+- **Claude Code updates no longer wait for a quiet moment**: the new version is installed into Wheelhouse's own folder
+  (`~/.wheelhouse/claude-code/<version>`) and used at once for new sessions and the model list, so a new model appears
+  even while sessions keep working (0.6.0 waited until no session was busy, which for a busy user never happened).
+  Sessions that are working keep their process. The Claude Code that the terminal runs is still updated in a quiet
+  moment, after which Wheelhouse uses it again and removes its own copy.
+
+### Fixed
+- *Usage → Plan limits* showed a window that was 1% used as 100% used (the value is a percentage; it was read as a
+  fraction when it was at most 1). The Fable limit looked used up after a dollar or two.
+- An idle session whose subagents were still working in the background could be stopped (after 25 minutes without
+  activity, or for an update), which ended those subagents. Sessions with background work are now left running, and
+  background tasks of a process that did end are no longer shown as running.
+
 ## [0.6.0] - 2026-11-10
 
 ### Added

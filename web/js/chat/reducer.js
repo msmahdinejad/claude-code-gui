@@ -45,6 +45,15 @@ function touch(conv, item) {
   return item;
 }
 
+/** Background tasks (subagents, commands) still marked running end with the process that ran them. */
+function stopTasks(conv) {
+  for (const task of conv.tasks.values()) {
+    if (!["running", "pending", "in_progress"].includes(task.status)) continue;
+    task.status = "stopped";
+    if (task.toolUseId && conv.tools.has(task.toolUseId)) touchTool(conv, conv.tools.get(task.toolUseId));
+  }
+}
+
 function pushItem(conv, item) {
   item.key = item.key || nextKey(item.kind[0]);
   item.v = 1;
@@ -341,6 +350,8 @@ function tryParsePartial(text) {
 function applySystem(conv, msg, { live }) {
   switch (msg.subtype) {
     case "init":
+      // A new Claude process: background work of the previous one died with it.
+      if (conv.init && conv.init !== msg) stopTasks(conv);
       conv.init = msg;
       conv.state = conv.state === "closed" ? "idle" : conv.state;
       break;
@@ -550,6 +561,7 @@ export function applyMessage(conv, msg, { live = true } = {}) {
       conv.requests.clear();
       conv.drafts.clear();
       for (const tool of conv.tools.values()) if (tool.status === "running" || tool.status === "streaming") { tool.status = "interrupted"; touchTool(conv, tool); }
+      stopTasks(conv);
       conv.version += 1;
       break;
     case "command_lifecycle":

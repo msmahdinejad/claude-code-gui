@@ -34,7 +34,8 @@ export class Catalog {
   }
 
   async load(cwd) {
-    const live = [...this.manager.sessions.values()].find((session) => session.alive && session.cwd === cwd && session.initResult);
+    // A live process only answers for the Claude Code it runs; after an update the list must come from the new one.
+    const live = [...this.manager.sessions.values()].find((session) => session.alive && session.cwd === cwd && session.initResult && (session.bin ?? null) === (this.config.claudeBin ?? null));
     if (live) return this.fromLive(live);
     await this.manager.ready?.();
     const input = new AsyncQueue();
