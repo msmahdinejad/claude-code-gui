@@ -4,7 +4,7 @@ import { icon } from "../core/icons.js";
 import { t } from "../core/i18n.js";
 import { app, bus, setPrefs } from "../core/state.js";
 import * as session from "../session.js";
-import { isModelId, mergeModels, modelFamily } from "../chat/model-names.js";
+import { isModelId, mergeModels, modelFamily, prettyModelName } from "../chat/model-names.js";
 
 // ---- remembered models -------------------------------------------------------------
 // Claude Code lists only the models it knows (and for some plans keeps an older one, e.g. Fable 5.1 on Team plans), so a
@@ -109,7 +109,7 @@ export function modelLabel(modelId) {
     return resolved ? `${t("Default")} · ${resolved}` : t("Default");
   }
   const info = currentModelInfo(modelId);
-  return info?.displayName || modelId;
+  return info?.displayName || prettyModelName(modelId);
 }
 
 export function openModelPicker(anchor) {

@@ -3,6 +3,16 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, minor versions may change the config format).
 
+## [0.6.3] - 2026-11-11
+
+### Changed
+- The model list's **Fable** row follows the newest Fable that has answered on the account: Claude Code keeps it at
+  Fable 5.1 on Team plans (also with `ANTHROPIC_DEFAULT_FABLE_MODEL` set, which a claude.ai sign-in ignores), although
+  `claude-fable-5-2` already answers. The row now uses Fable 5.2 with the same 1M tag, and Fable 5.1 stays available as
+  "Fable 5.1 (1M)". The same applies to any model family once a newer version has answered.
+- The limit-reset dialog says that Wheelhouse cannot see which resets an account has: the reset types are listed under
+  "Or use a type directly (only if the account has one)", and *Open /limit-reset* is the way to see them.
+
 ## [0.6.2] - 2026-11-11
 
 ### Added

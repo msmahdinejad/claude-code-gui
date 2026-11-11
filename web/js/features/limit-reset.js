@@ -8,7 +8,7 @@ import { registerCommand } from "../core/registry.js";
 import { api } from "../core/api.js";
 
 const KINDS = [
-  { id: "", title: "Open /limit-reset", desc: "Claude Code shows the resets this account has, or uses the one that fits." },
+  { id: "", title: "Open /limit-reset", desc: "Wheelhouse cannot see which resets an account has; Claude Code shows them, or uses the one that fits." },
   { id: "fable", title: "Fable reset", desc: "Gives back to your weekly limit what Fable used." },
   { id: "full", title: "Full reset", desc: "Clears the 5-hour and the weekly limit." },
   { id: "5-hour", title: "5-hour reset", desc: "Clears the 5-hour limit." },
@@ -40,7 +40,8 @@ export async function openLimitResetDialog() {
     select ? h("div.setting-row", h("div.grow", h("strong", t("Account (profile)"))), select) : null,
     h(
       "div.limit-reset-kinds",
-      KINDS.map((kind) =>
+      KINDS.map((kind, index) => [
+        index === 1 ? h("div.picker-section", t("Or use a type directly (only if the account has one)")) : null,
         h(
           `button.picker-item${kind.id ? "" : ".primary-item"}`,
           { type: "button", onclick: async () => {
@@ -52,7 +53,7 @@ export async function openLimitResetDialog() {
           h("span.pi-main", h("span.pi-title", t(kind.title)), h("span.pi-desc", t(kind.desc))),
           h("code.muted.small", { dir: "ltr" }, kind.id ? `/limit-reset ${kind.id}` : "/limit-reset"),
         ),
-      ),
+      ]),
     ),
   );
   const dialog = modal({ title: t("Limit resets"), body, width: 560 });

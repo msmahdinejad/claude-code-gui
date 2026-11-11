@@ -149,5 +149,25 @@ test("model names and remembered models", async () => {
   assert.equal(isModelId("claude-fable-5-2"), true);
   const cli = [{ value: "default" }, { value: "opus", resolvedModel: "claude-opus-5-5" }, { value: "claude-fable-5-1[1m]", displayName: "Fable" }];
   const merged = mergeModels(cli, [{ id: "claude-fable-5-2", at: 2 }, { id: "claude-opus-5-5", at: 3 }, { id: "claude-fable-5-1", at: 1 }, { id: "<synthetic>", at: 4 }]);
-  assert.deepEqual(merged.slice(cli.length).map((model) => [model.value, model.displayName]), [["claude-fable-5-2", "Fable 5.2"]]);
+  // the CLI's Fable row now points at 5.2 (same name and tag); 5.1 stays as a row of its own, no duplicates
+  assert.deepEqual(merged.map((model) => [model.value, model.displayName]).slice(2), [["claude-fable-5-2[1m]", "Fable"], ["claude-fable-5-1[1m]", "Fable 5.1 (1M)"]]);
+  // a model of a family the CLI does not list is added as its own row
+  const extra = mergeModels(cli, [{ id: "claude-mythos-1-0", at: 1 }]);
+  assert.deepEqual(extra.slice(cli.length).map((model) => [model.value, model.displayName]), [["claude-mythos-1-0", "Mythos 1.0"]]);
+});
+
+test("the CLI's row of a model family follows the newest version that answered", async () => {
+  const { upgradeModels, parseModel } = await import("../web/js/chat/model-names.js");
+  assert.deepEqual(parseModel("claude-fable-5-2[1m]"), { family: "fable", version: [5, 2] });
+  assert.deepEqual(parseModel("claude-sonnet-4-5-20250929"), { family: "sonnet", version: [4, 5] });
+  assert.equal(parseModel("opus"), null);
+  const cli = [
+    { value: "default", resolvedModel: "claude-opus-5-5", description: "Use the default model" },
+    { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus", description: "Opus 5.5 · Best" },
+    { value: "claude-fable-5-1[1m]", resolvedModel: "claude-fable-5-1", displayName: "Fable", description: "Fable 5.1 · Most capable" },
+  ];
+  const out = upgradeModels(cli, [{ id: "claude-fable-5-2" }, { id: "claude-fable-5-0" }, { id: "claude-opus-5-5" }]);
+  assert.equal(out[0], cli[0]);
+  assert.equal(out[1], cli[1], "nothing newer for opus");
+  assert.deepEqual([out[2].value, out[2].resolvedModel, out[2].description, out[2].upgradedFrom], ["claude-fable-5-2[1m]", "claude-fable-5-2", "Fable 5.2 · Most capable", "claude-fable-5-1[1m]"]);
 });

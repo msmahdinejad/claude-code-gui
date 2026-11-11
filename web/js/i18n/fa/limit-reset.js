@@ -1,6 +1,7 @@
 export const fa = {
   "Open /limit-reset": "باز کردن /limit-reset",
-  "Claude Code shows the resets this account has, or uses the one that fits.": "Claude Code ریست‌های این اکانت را نشان می‌دهد یا مناسب‌ترین را استفاده می‌کند.",
+  "Wheelhouse cannot see which resets an account has; Claude Code shows them, or uses the one that fits.": "Wheelhouse نمی‌تواند ببیند اکانت چه ریست‌هایی دارد؛ Claude Code آن‌ها را نشان می‌دهد یا مناسب‌ترین را استفاده می‌کند.",
+  "Or use a type directly (only if the account has one)": "یا مستقیم یک نوع را استفاده کن (فقط اگر اکانت آن را دارد)",
   "Open /limit-reset in Claude Code? It may use a reset of this account right away.": "/limit-reset در Claude Code باز شود؟ ممکن است همان لحظه یک ریست از این اکانت مصرف شود.",
   Open: "باز کن",
   "Fable reset": "ریست Fable",
