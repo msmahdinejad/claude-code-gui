@@ -8,7 +8,7 @@ import { api } from "../core/api.js";
 import * as session from "../session.js";
 import { toggleSidebar } from "../ui/sidebar.js";
 import { toggleInspector, openInspector } from "../ui/inspector.js";
-import { openModelPicker, openModePicker, PERMISSION_MODES, EFFORTS } from "../ui/pickers.js";
+import { openModelPicker, openModePicker, PERMISSION_MODES, EFFORTS, allModels } from "../ui/pickers.js";
 import { pickFolder } from "../ui/folder-picker.js";
 
 // ---- helpers ---------------------------------------------------------------------
@@ -102,7 +102,7 @@ registerSettingsSection({
 registerSettingsSection({
   id: "model", title: "Model & behavior", icon: "sparkles", order: 1,
   render(el) {
-    const models = app.catalog?.models || [];
+    const models = allModels();
     el.append(
       h("h2", t("Model & behavior")), h("p.lead", t("Defaults for new sessions. You can change them per session from the composer.")),
       h("div.group", h("h3", t("Defaults")),

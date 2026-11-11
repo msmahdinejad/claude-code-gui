@@ -3,6 +3,21 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, minor versions may change the config format).
 
+## [0.6.2] - 2026-11-11
+
+### Added
+- **Limit resets** (`/limit-reset`, the command palette, or *Usage → Limit resets…*): the "Reset for free" resets of an
+  account are handled only by Claude Code's own terminal screen (claude.ai does not offer them to other clients), so
+  Wheelhouse opens Claude Code 2.1.322+ in a new terminal window, signed in as the chosen profile, with `/limit-reset` or
+  `/limit-reset fable|full|5-hour|weekly`. Every button asks first, because Claude Code may use the reset right away.
+- *Settings → Updates → Update now* updates the Claude Code your terminal runs at once, without waiting for a quiet
+  moment (sessions that run the old version are stopped and continue on the next message).
+- **Models you use stay in the model list**: Claude Code lists only the models it knows, and on Team and Enterprise plans
+  it keeps showing an older one (Fable 5.1) until the organization allows the newer one, even though the newer one
+  (`claude-fable-5-2`) already answers. A model picked with *Custom model…*, or one that answered in a conversation, is now
+  remembered and listed with a readable name ("Fable 5.2") in the model picker, the composer and *Settings → Model &
+  behavior*. A remembered model can be removed from the list with its ✕.
+
 ## [0.6.1] - 2026-11-10
 
 ### Added

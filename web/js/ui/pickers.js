@@ -2,8 +2,36 @@
 import { h, popover, promptDialog, toast } from "../core/dom.js";
 import { icon } from "../core/icons.js";
 import { t } from "../core/i18n.js";
-import { app } from "../core/state.js";
+import { app, bus, setPrefs } from "../core/state.js";
 import * as session from "../session.js";
+import { isModelId, mergeModels, modelFamily } from "../chat/model-names.js";
+
+// ---- remembered models -------------------------------------------------------------
+// Claude Code lists only the models it knows (and for some plans keeps an older one, e.g. Fable 5.1 on Team plans), so a
+// model you pick with "Custom model…" or that answered you is remembered and listed with the others.
+const MAX_REMEMBERED = 12;
+
+/** The CLI's models plus remembered ones it does not list. */
+export function allModels() {
+  return mergeModels(app.catalog?.models || [], app.prefs.customModels || []);
+}
+
+export function rememberModel(id) {
+  if (!isModelId(id) || id === "default") return;
+  const known = (app.catalog?.models || []).some((model) => modelFamily(model.value) === modelFamily(id) || modelFamily(model.resolvedModel) === modelFamily(id));
+  if (known) return;
+  const current = (app.prefs.customModels || []).find((entry) => entry.id === id);
+  if (current && Date.now() - (current.at || 0) < 60 * 60 * 1000) return; // already listed and recent: nothing to change
+  const list = (app.prefs.customModels || []).filter((entry) => entry.id !== id);
+  list.unshift({ id, at: Date.now() });
+  setPrefs({ customModels: list.slice(0, MAX_REMEMBERED) });
+  bus.emit("catalog");
+}
+
+export function forgetModel(id) {
+  setPrefs({ customModels: (app.prefs.customModels || []).filter((entry) => entry.id !== id) });
+  bus.emit("catalog");
+}
 
 export const PERMISSION_MODES = [
   { id: "default", icon: "shield", title: () => t("Ask permissions"), desc: () => t("Claude asks before editing files or running commands.") },
@@ -70,7 +98,7 @@ export function describeModel(text) {
 }
 
 export function currentModelInfo(modelId) {
-  const models = app.catalog?.models || [];
+  const models = allModels();
   return models.find((model) => model.value === modelId) || models.find((model) => model.resolvedModel === modelId) || null;
 }
 
@@ -86,7 +114,7 @@ export function modelLabel(modelId) {
 
 export function openModelPicker(anchor) {
   const state = session.effective();
-  const models = app.catalog?.models || [];
+  const models = allModels();
   const info = currentModelInfo(state.model);
   const body = h("div.picker");
   body.append(h("div.picker-section", t("Model")));
@@ -97,8 +125,11 @@ export function openModelPicker(anchor) {
       h(
         "button.picker-item",
         { type: "button", onclick: () => { session.setModel(model.value); pop.close(); } },
-        h("span.pi-main", h("span.pi-title", t(model.displayName)), h("span.pi-desc", describeModel(model.description) || model.resolvedModel)),
+        h("span.pi-main", h("span.pi-title", t(model.displayName)), h("span.pi-desc", { dir: model.remembered ? "ltr" : "auto" }, describeModel(model.description) || model.resolvedModel)),
         active ? icon("check", 15, "check") : null,
+        model.remembered
+          ? h("span.pi-remove", { role: "button", tabindex: "0", title: t("Remove from the list"), onclick: (event) => { event.stopPropagation(); forgetModel(model.value); pop.close(); } }, icon("x", 13))
+          : null,
       ),
     );
   }
@@ -106,7 +137,10 @@ export function openModelPicker(anchor) {
     h("button.picker-item", { type: "button", onclick: async () => {
       pop.close();
       const id = await promptDialog({ title: t("Custom model"), label: t("Model ID or alias (e.g. claude-sonnet-5-5)"), placeholder: "claude-…" });
-      if (id?.trim()) session.setModel(id.trim());
+      if (id?.trim()) {
+        session.setModel(id.trim());
+        rememberModel(id.trim());
+      }
     } }, h("span.pi-main", h("span.pi-title", t("Custom model…")), h("span.pi-desc", t("Use any model ID your gateway supports."))), icon("edit", 15)),
   );
   const levels = info?.supportedEffortLevels;

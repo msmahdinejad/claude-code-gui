@@ -185,12 +185,13 @@ export class ClaudeUpdater extends EventEmitter {
   }
 
   /** Check, install our own copy, then (when quiet) the profile's install. One run at a time; `force` runs with the switch off. */
-  tick({ force = false } = {}) {
+  tick({ force = false, now = false } = {}) {
+    if (now) this.urgent = true; // also ends the wait of a run that is already waiting for a quiet moment
     if (this.job) return this.job;
     if (!force && !this.isEnabled()) return Promise.resolve(this.status());
     this.job = this.update({ force })
       .catch((error) => { this.state.error = error.message; })
-      .finally(() => { this.job = null; this.state.phase = "idle"; });
+      .finally(() => { this.job = null; this.urgent = false; this.state.phase = "idle"; });
     return this.job;
   }
 
@@ -214,10 +215,11 @@ export class ClaudeUpdater extends EventEmitter {
     if (!newer(latest, installed) || install?.kind !== "npm") return this.status();
     if (!/^[^"%&|<>^\r\n]+$/.test(install.prefix)) return this.status();
     this.state.phase = "waiting";
-    while (!this.idle()) {
+    while (!this.urgent && !this.idle()) {
       if (!force && !this.isEnabled()) return this.status();
       await this.sleep(IDLE_POLL_MS);
     }
+    this.urgent = false;
     this.state.phase = "installing";
     await this.swap(install, own, installed, latest);
     return this.status();
@@ -254,7 +256,8 @@ export class ClaudeUpdater extends EventEmitter {
     let release;
     this.manager.hold?.(new Promise((resolve) => { release = resolve; })); // sessions and catalog loads wait while the files change
     try {
-      // Only processes that run the profile's executable hold its files; ours (the copy) can keep running.
+      // Only processes that run the profile's executable hold its files; ours (the copy) can keep running. With "now" this
+      // also stops sessions that are working on the old version: they continue on the next message.
       for (const session of this.manager.sessions.values()) if (session.alive && (!session.bin || session.bin === own)) session.close();
       await this.sleep(1500); // let the processes exit so the files are free
       const ok = await this.install(install, own, to);

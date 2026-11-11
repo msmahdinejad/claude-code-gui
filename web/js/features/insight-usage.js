@@ -141,6 +141,7 @@ registerInspectorTab({
           "div.panel-section",
           h("h4", t("Plan limits")),
           shown.length ? shown : h("div.muted.small", live ? t("Plan limits are not reported for this account or gateway.") : t("Press refresh to load.")),
+          h("button.btn.small", { type: "button", style: { marginTop: "8px" }, onclick: async () => (await import("./limit-reset.js")).openLimitResetDialog() }, icon("rotate-ccw", 13), t("Limit resets…")),
           events ? h("div.banner.info", icon("info", 14), h("span", rateLimitText(events))) : null,
         ),
       );

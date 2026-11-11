@@ -22,9 +22,9 @@ export default function register({ route, config, manager, catalog, store }) {
     if (updater.isEnabled() && status.updateAvailable) updater.tick().catch(() => {});
     return updater.status();
   });
-  // "Update now": the same, even with the automatic switch off.
-  route("POST", "/api/update/apply", async () => {
-    updater.tick({ force: true }).catch(() => {});
+  // "Update now": the same, even with the automatic switch off; `now` does not wait for a quiet moment.
+  route("POST", "/api/update/apply", async ({ body }) => {
+    updater.tick({ force: true, now: Boolean(body?.now) }).catch(() => {});
     await new Promise((resolve) => setTimeout(resolve, 150));
     return updater.status();
   });

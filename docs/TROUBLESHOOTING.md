@@ -25,6 +25,14 @@ downloaded; a session that was already running keeps its version until it restar
 Wheelhouse starts with). A file that is in use can block the swap; the old version is then kept and it is tried again an
 hour later.
 
+## Limit resets ("Reset for free")
+Claude Code 2.1.322 and later have a hidden `/limit-reset` command (`/limit-reset fable|full|5-hour|weekly`) that uses a
+reset available on the account it is signed in to; it is also offered when you reach a limit. It is an interactive
+terminal screen, and claude.ai offers the resets only to Claude Code itself, so Wheelhouse's `/limit-reset` (or *Usage →
+Limit resets…*) opens Claude Code in a new terminal window with that command, signed in as the chosen profile. Resets
+belong to one account: the resets of a personal account do not apply to a work account; to use those, add a profile
+whose `configDir` is signed in to the personal account.
+
 ## Requests hang or fail with connection errors
 - A system-wide `HTTPS_PROXY` can break access to internal gateways. Add the host to the profile's `proxyBypass`.
 - Many `claude` processes sharing one config directory may invalidate a shared OAuth login. Close unused sessions and

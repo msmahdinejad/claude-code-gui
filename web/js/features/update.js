@@ -1,6 +1,6 @@
 // Claude Code updates: a Settings page (switch, versions, "Check now") and a watcher that refreshes the model list and
 // says so when the server has just installed a newer Claude Code (see server/lib/claude-updater.mjs).
-import { h, toast, errorMessage } from "../core/dom.js";
+import { h, toast, errorMessage, confirmDialog } from "../core/dom.js";
 import { icon } from "../core/icons.js";
 import { t } from "../core/i18n.js";
 import { app, bus } from "../core/state.js";
@@ -75,7 +75,12 @@ registerSettingsSection({
           h("div.setting-row", h("div.grow", h("strong", t("Update automatically")), h("small", t("When a newer version is out it is downloaded in the background and used for every new session right away; sessions that are working keep going. The Claude Code your terminal runs is updated once no session is working."))), h("label.switch", input)),
           h("div.setting-row", h("div.grow", h("strong", t("Version")), h("small", { dir: "ltr" }, bits.join(" · ") || "…")), h("div", { style: { display: "flex", gap: "8px" } },
             h("button.btn", { type: "button", onclick: async () => { try { draw(await api.post("/api/update/check", {})); } catch (error) { toast(errorMessage(error), "error"); } } }, t("Check now")),
-            status.updateAvailable ? h("button.btn.primary", { type: "button", onclick: async () => { try { draw(await api.post("/api/update/apply", {})); schedule(); } catch (error) { toast(errorMessage(error), "error"); } } }, t("Update now")) : null,
+            status.updateAvailable || status.phase === "waiting" || (status.installed && status.active && status.installed !== status.active)
+              ? h("button.btn.primary", { type: "button", onclick: async () => {
+                if (!(await confirmDialog({ title: t("Update now"), message: t("Sessions that run the old version are stopped, also if they are working; they continue on your next message. Claude Code windows open in a terminal can block the update."), confirmLabel: t("Update now") }))) return;
+                try { draw(await api.post("/api/update/apply", { now: true })); schedule(); } catch (error) { toast(errorMessage(error), "error"); }
+              } }, t("Update now"))
+              : null,
           )),
           note,
         ),

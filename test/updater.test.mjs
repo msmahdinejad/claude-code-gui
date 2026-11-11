@@ -162,3 +162,18 @@ test("no update when already on the newest version", async () => {
   assert.equal(ctx.manager.sessions.get("0").closed, 0);
   await ctx.done();
 });
+
+test("“now” stops waiting for a quiet moment and stops the sessions on the old version", async () => {
+  const busy = session({ state: "running" });
+  const ctx = await setup({ sessions: [busy] });
+  let sleeps = 0;
+  ctx.updater.onSleep = () => {
+    sleeps += 1;
+    if (sleeps === 2) ctx.updater.tick({ force: true, now: true }); // the user presses "Update now" while it waits
+  };
+  await ctx.updater.tick();
+  assert.equal(busy.state, "running", "it was still working");
+  assert.equal(busy.closed, 1);
+  assert.equal(ctx.versions.get(OWN), "2.1.322");
+  await ctx.done();
+});

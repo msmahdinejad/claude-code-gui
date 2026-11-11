@@ -138,3 +138,16 @@ test("background tasks still running end with the process that ran them", () => 
   assert.equal(conv.tasks.get("t1").status, "stopped");
   assert.equal(conv.tasks.get("t2").status, "completed");
 });
+
+test("model names and remembered models", async () => {
+  const { prettyModelName, mergeModels, isModelId } = await import("../web/js/chat/model-names.js");
+  assert.equal(prettyModelName("claude-fable-5-2"), "Fable 5.2");
+  assert.equal(prettyModelName("claude-sonnet-4-5-20250929"), "Sonnet 4.5");
+  assert.equal(prettyModelName("claude-opus-5-5[1m]"), "Opus 5.5 (1M)");
+  assert.equal(prettyModelName("gpt-6-sol"), "gpt-6-sol");
+  assert.equal(isModelId("<synthetic>"), false);
+  assert.equal(isModelId("claude-fable-5-2"), true);
+  const cli = [{ value: "default" }, { value: "opus", resolvedModel: "claude-opus-5-5" }, { value: "claude-fable-5-1[1m]", displayName: "Fable" }];
+  const merged = mergeModels(cli, [{ id: "claude-fable-5-2", at: 2 }, { id: "claude-opus-5-5", at: 3 }, { id: "claude-fable-5-1", at: 1 }, { id: "<synthetic>", at: 4 }]);
+  assert.deepEqual(merged.slice(cli.length).map((model) => [model.value, model.displayName]), [["claude-fable-5-2", "Fable 5.2"]]);
+});

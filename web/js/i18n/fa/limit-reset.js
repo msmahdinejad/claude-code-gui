@@ -1,0 +1,24 @@
+export const fa = {
+  "Open /limit-reset": "باز کردن /limit-reset",
+  "Claude Code shows the resets this account has, or uses the one that fits.": "Claude Code ریست‌های این اکانت را نشان می‌دهد یا مناسب‌ترین را استفاده می‌کند.",
+  "Open /limit-reset in Claude Code? It may use a reset of this account right away.": "/limit-reset در Claude Code باز شود؟ ممکن است همان لحظه یک ریست از این اکانت مصرف شود.",
+  Open: "باز کن",
+  "Fable reset": "ریست Fable",
+  "Gives back to your weekly limit what Fable used.": "مصرف Fable را به لیمیت هفتگی‌ات برمی‌گرداند.",
+  "Full reset": "ریست کامل",
+  "Clears the 5-hour and the weekly limit.": "لیمیت ۵ ساعته و هفتگی را صفر می‌کند.",
+  "5-hour reset": "ریست ۵ ساعته",
+  "Clears the 5-hour limit.": "لیمیت ۵ ساعته را صفر می‌کند.",
+  "Weekly reset": "ریست هفتگی",
+  "Clears the weekly limit.": "لیمیت هفتگی را صفر می‌کند.",
+  "Claude Code opened in a new window with {command}.": "Claude Code در پنجرهٔ جدید با {command} باز شد.",
+  "Limit resets (“Reset for free” on claude.ai) clear a usage limit of an account early. They belong to the account the profile is signed in to: the resets of a personal account do not apply to a work account.":
+    "ریست‌های لیمیت («Reset for free» در claude.ai) لیمیت مصرف یک اکانت را زودتر صفر می‌کنند. مال همان اکانتی‌اند که پروفایل با آن لاگین است: ریست‌های اکانت شخصی روی اکانت کاری اثری ندارند.",
+  "Claude Code handles them only in its own terminal screen, so these buttons open Claude Code in a new window with /limit-reset (or /limit-reset and a type). What happens next is Claude Code's own screen; a reset may be used right away.":
+    "Claude Code ریست‌ها را فقط در صفحهٔ ترمینال خودش مدیریت می‌کند؛ برای همین این دکمه‌ها Claude Code را در پنجرهٔ جدید با /limit-reset (یا /limit-reset و یک نوع) باز می‌کنند. ادامهٔ کار با صفحهٔ خود Claude Code است و ممکن است ریست همان لحظه مصرف شود.",
+  "Use a {kind} of this account now?": "یک {kind} از این اکانت همین حالا استفاده شود؟",
+  "Use it": "استفاده کن",
+  "Account (profile)": "اکانت (پروفایل)",
+  "Limit resets": "ریست‌های لیمیت",
+  "Limit resets…": "ریست‌های لیمیت…",
+};

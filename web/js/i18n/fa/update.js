@@ -23,4 +23,6 @@ export const fa = {
   "Could not run claude --version": "اجرای claude --version ممکن نشد",
   "Could not reach the npm registry": "به رجیستری npm دسترسی نبود",
   "Unsupported install path": "مسیر نصب پشتیبانی نمی‌شود",
+  "Sessions that run the old version are stopped, also if they are working; they continue on your next message. Claude Code windows open in a terminal can block the update.":
+    "سشن‌هایی که با نسخهٔ قدیمی اجرا می‌شوند متوقف می‌شوند، حتی اگر در حال کار باشند؛ با پیام بعدی‌ات ادامه می‌دهند. پنجره‌های Claude Code که در ترمینال باز است ممکن است جلوی آپدیت را بگیرند.",
 };
