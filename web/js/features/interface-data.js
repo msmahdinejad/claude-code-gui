@@ -603,18 +603,20 @@ function ansi256ToHex(n) {
  */
 export function parseThemeColor(value) {
   const text = String(value ?? "").trim();
-  let match;
-  if ((match = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(text))) return { ok: true, css: text.toLowerCase(), kind: "hex" };
-  if ((match = /^rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$/i.exec(text))) {
+  if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(text)) return { ok: true, css: text.toLowerCase(), kind: "hex" };
+  const match = /^rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$/i.exec(text);
+  if (match) {
     const parts = match.slice(1).map(Number);
     if (parts.every((part) => part <= 255)) return { ok: true, css: `rgb(${parts.join(",")})`, kind: "rgb" };
     return { ok: false, css: null };
   }
-  if ((match = /^ansi256\(\s*(\d{1,3})\s*\)$/i.exec(text))) {
-    const n = Number(match[1]);
+  const ansi = /^ansi256\(\s*(\d{1,3})\s*\)$/i.exec(text);
+  if (ansi) {
+    const n = Number(ansi[1]);
     return n <= 255 ? { ok: true, css: ansi256ToHex(n), kind: "ansi256" } : { ok: false, css: null };
   }
-  if ((match = /^ansi:([A-Za-z]+)$/.exec(text)) && match[1] in ANSI_NAMES) return { ok: true, css: ANSI_NAMES[match[1]], kind: "ansi" };
+  const named = /^ansi:([A-Za-z]+)$/.exec(text);
+  if (named && named[1] in ANSI_NAMES) return { ok: true, css: ANSI_NAMES[named[1]], kind: "ansi" };
   return { ok: false, css: null };
 }
 

@@ -22,7 +22,7 @@ registerSettingsSection({
       lead: "Variables set here are injected into every Claude Code session and its tools (settings.json → env).",
       async render(body, { json, scope }) {
         const rows = new Map(); // name -> row state (the name currently saved in the file)
-        let order = Object.entries(getIn(json, "env", {})).map(([key, value]) => [key, String(value)]);
+        const order = Object.entries(getIn(json, "env", {})).map(([key, value]) => [key, String(value)]);
         const table = h("div.env-table");
         const description = h("div.env-desc");
         const datalist = h("datalist", { id: "env-known" }, ENV_VARS.map((entry) => h("option", { value: entry.name, label: pick(entry).slice(0, 80) })));
@@ -120,7 +120,6 @@ registerSettingsSection({
 
         if (!order.length) emptyNote();
         order.forEach(addRow);
-        order = null;
 
         // ---- add row ----
         const newKey = h("input.input.mono", { type: "text", placeholder: "NAME", dir: "ltr", list: "env-known", spellcheck: "false", "aria-label": t("Name") });

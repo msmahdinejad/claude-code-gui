@@ -51,7 +51,7 @@ export function renderRequest(request, { respond, toolCard }) {
   const send = async (id, answer) => {
     if (!card || card.classList.contains("sending")) return;
     setSending(card, true);
-    let ok = true;
+    let ok;
     try {
       ok = (await respond(id, answer)) !== false;
     } catch {
