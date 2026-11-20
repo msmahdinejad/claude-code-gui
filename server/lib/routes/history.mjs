@@ -12,7 +12,8 @@ const MAX_LIMIT = 200;
 
 const normalizeProject = (value) => {
   const path = String(value || "").replaceAll("\\", "/").replace(/\/+$/, "");
-  return process.platform === "linux" ? path : path.toLowerCase();
+  // A Windows folder (drive letter) compares case-insensitively wherever the server runs, e.g. a history file copied from Windows.
+  return process.platform === "linux" && !/^[A-Za-z]:\//.test(path) ? path : path.toLowerCase();
 };
 
 async function readTail(file, bytes) {

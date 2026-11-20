@@ -272,7 +272,7 @@ test("server: PTY endpoints refuse cross-site requests and bad input", async () 
   assert.equal((await api("/api/pty/not-an-id/state")).status, 404);
 });
 
-test("server: a real shell round trip over SSE + POST", { skip: !nodePtyLoads && "node-pty is not installed", timeout: 60_000 }, async () => {
+test("server: a real shell round trip over SSE + POST", { skip: (!nodePtyLoads && "node-pty is not installed") || (process.env.CI && process.platform === "win32" && "GitHub's Windows runners give ConPTY no console output"), timeout: 60_000 }, async () => {
   const info = await (await api("/api/pty/info")).json();
   assert.equal(info.available, true, info.reason);
   const opened = await (await api("/api/pty/open", { method: "POST", body: JSON.stringify({ cwd: home, cols: 100, rows: 30 }) })).json();
