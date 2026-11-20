@@ -20,6 +20,14 @@ and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, mi
 - **Prompt history across sessions** with Ctrl+R, `!` shell mode (runs locally; you choose whether to send the output
   to Claude) and *Continue automatically after a usage limit* (off by default).
 
+- **Resume after restart** (*Settings → Resume after restart*): sessions that were working when Wheelhouse stopped are
+  offered for continuing at the next start (a dialog), and, with the switch on (off by default), sessions interrupted in
+  the last 30 minutes are continued by themselves: at most 3 at once, each once, with one message that asks them to
+  check what already finished. Scheduled runs are never continued this way.
+
+### Changed
+- *Continue automatically after a usage limit* is now **on by default** (switch it off per conversation in the banner).
+
 ### Fixed
 - The Claude Code updater could leave the installed Claude Code broken: when the large platform package could not be
   downloaded, npm still reported success and the old install was already gone. The new version is now installed

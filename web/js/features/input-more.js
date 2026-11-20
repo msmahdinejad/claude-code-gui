@@ -264,13 +264,15 @@ export function createLocalRuns({ onSend }) {
 
 // ---- continue automatically after a usage limit ----------------------------------------------------------------
 // The reducer sets conv.limitHit = { resetsAt (ms), type, at } from a rate_limit_event that is "rejected". The choice
-// to continue on its own lives here, in memory only: it survives switching conversations, not a page reload.
+// to continue on its own is ON by default and lives here, in memory only (the ones switched off): it survives switching
+// conversations, not a page reload.
 export const CONTINUE_TEXT = "Please continue the task you were working on.";
 const GRACE_MS = 3000; // a moment after the reset, so the limit is surely lifted
 const RETRY_MS = 15_000; // the conversation was still busy at the reset
 const MAX_AUTO = 3; // like Claude Code: stop after this many automatic continues in a row
 
-const autoOn = new Map(); // conversation id -> true
+const autoOff = new Set(); // conversations where the person switched it off (or it stopped after repeated hits)
+const isAuto = (id) => !autoOff.has(id);
 const timers = new Map(); // conversation id -> { key, handle }
 const fired = new Set(); // keys that were sent (or given up on): never twice
 const autoCount = new Map(); // conversation id -> automatic continues since the user last wrote
@@ -292,7 +294,7 @@ function plan(id) {
   const conv = app.convs.get(id);
   const hit = conv?.limitHit;
   const key = hit ? limitKey(id, hit) : null;
-  if (!hit || !autoOn.get(id) || fired.has(key)) { unplan(id); return; }
+  if (!hit || !isAuto(id) || fired.has(key)) { unplan(id); return; }
   if (timers.get(id)?.key === key) return; // already counting down to this reset
   unplan(id);
   arm(id, key, Math.max(0, hit.resetsAt - Date.now()) + GRACE_MS);
@@ -307,13 +309,13 @@ async function fire(id, key) {
   const conv = app.convs.get(id);
   const hit = conv?.limitHit;
   // Still the same limit, still switched on, nothing newer from the user, never sent before.
-  if (!conv || !hit || limitKey(id, hit) !== key || !autoOn.get(id) || fired.has(key)) { unplan(id); return; }
+  if (!conv || !hit || limitKey(id, hit) !== key || !isAuto(id) || fired.has(key)) { unplan(id); return; }
   if (Date.now() < hit.resetsAt) { arm(id, key, hit.resetsAt - Date.now() + GRACE_MS); return; } // woke early
   if (isBusy(conv)) { arm(id, key, RETRY_MS); return; } // idle or closed (the process was put to rest) only
   unplan(id);
   fired.add(key);
   if ((autoCount.get(id) || 0) >= MAX_AUTO) {
-    autoOn.delete(id);
+    autoOff.add(id);
     toast(t("Automatic continue stopped after repeated usage-limit hits."), "error");
     bus.emit("limit:auto", id);
     return;
@@ -351,7 +353,7 @@ export function createLimitBanner() {
       return;
     }
     const over = Date.now() >= hit.resetsAt;
-    const signature = `${limitKey(id, hit)}|${over && !autoOn.get(id) ? "reset" : "wait"}|${document.documentElement.lang}`; // the switch keeps its own state
+    const signature = `${limitKey(id, hit)}|${over && !isAuto(id) ? "reset" : "wait"}|${document.documentElement.lang}`; // the switch keeps its own state
     if (signature !== shown) {
       shown = signature;
       draw(id, hit, over);
@@ -361,7 +363,7 @@ export function createLimitBanner() {
 
   function draw(id, hit, over) {
     el.classList.remove("hidden");
-    if (over && !autoOn.get(id)) {
+    if (over && !isAuto(id)) {
       el.replaceChildren(
         icon("clock", 14),
         h("span.lb-text", t("The usage limit has reset.")),
@@ -370,8 +372,8 @@ export function createLimitBanner() {
       );
       return;
     }
-    const toggle = h("input", { type: "checkbox", checked: Boolean(autoOn.get(id)), "aria-label": t("Continue automatically"), onchange: () => {
-      if (toggle.checked) autoOn.set(id, true); else autoOn.delete(id);
+    const toggle = h("input", { type: "checkbox", checked: isAuto(id), "aria-label": t("Continue automatically"), onchange: () => {
+      if (toggle.checked) autoOff.delete(id); else autoOff.add(id);
       plan(id);
       update(); // (an over-due limit with the switch off turns into the "has reset" notice)
     } });
