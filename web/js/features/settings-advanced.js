@@ -1,4 +1,5 @@
-// Settings → Advanced: common keys form, raw settings.json editor, session start options, effective settings.
+// Settings → Advanced: raw settings.json editor, session start options, effective settings.
+// Individual settings.json keys are edited on the Claude Code settings pages (settings-claude.js).
 import { h, toast, errorMessage, confirmDialog } from "../core/dom.js";
 import { icon } from "../core/icons.js";
 import { t } from "../core/i18n.js";
@@ -7,75 +8,42 @@ import { app } from "../core/state.js";
 import * as session from "../session.js";
 import { registerSettingsSection } from "../core/registry.js";
 import { lineDiff, diffView } from "../chat/tools.js";
-import { scopedPage, group, settingRow, selectControl, toggleControl, textControl, getIn, setIn, saveScope, sessionOptions, currentCwd, infoBanner, dangerBanner } from "./settings-shared.js";
+import { scopedPage, group, settingRow, selectControl, toggleControl, textControl, saveScope, sessionOptions, currentCwd, infoBanner, dangerBanner } from "./settings-shared.js";
 
-let activeTab = "common";
+let activeTab = "raw";
 
 registerSettingsSection({
   id: "advanced",
   title: "Advanced",
   icon: "sliders",
   order: 90,
-  render(el) {
+  render(el, appCtx) {
     scopedPage(el, {
       title: "Advanced",
-      lead: "Everything else in settings.json, raw access to the file, and options that only apply when a session starts.",
+      lead: "Raw access to settings.json, options that only apply when a session starts, and the merged effective settings.",
       async render(body, ctx) {
-        const tabs = [["common", t("Common settings")], ["raw", t("Raw JSON")], ["session", t("Session options")], ["effective", t("Effective settings")]];
+        const tabs = [["raw", t("Raw JSON")], ["session", t("Session options")], ["effective", t("Effective settings")]];
         const panel = h("div.advanced-panel");
         const bar = h("div.tabs-inline");
+        const pointer = h(
+          "div.banner.info",
+          icon("info", 14),
+          h("span.grow", t("Each settings.json key (model, theme, status line, sandbox, attribution and more) has its own form on the Claude Code settings pages.")),
+          h("button.btn.small", { type: "button", onclick: () => appCtx?.openSettings?.("cc-all") }, icon("search", 13), t("All Claude Code settings")),
+        );
         const draw = () => {
           bar.replaceChildren(...tabs.map(([id, label]) => h(`button${id === activeTab ? ".active" : ""}`, { type: "button", onclick: () => { activeTab = id; draw(); } }, label)));
           panel.replaceChildren();
-          if (activeTab === "common") common(panel, ctx);
-          else if (activeTab === "raw") raw(panel, ctx);
+          if (activeTab === "raw") raw(panel, ctx);
           else if (activeTab === "session") sessionForm(panel);
           else effective(panel);
         };
-        body.append(bar, panel);
+        body.append(pointer, bar, panel);
         draw();
       },
     });
   },
 });
-
-// ---- common settings -------------------------------------------------------------------
-function common(panel, { json, edit }) {
-  const set = (path, value) => edit((draft) => setIn(draft, path, value));
-  const bool = (path, fallback = false) => toggleControl(getIn(json, path, fallback), (value) => set(path, value === fallback ? undefined : value));
-  const num = (path, placeholder) => textControl(getIn(json, path, ""), (value) => set(path, value === "" ? undefined : Number(value)), { type: "number", width: 110, placeholder });
-  const attribution = getIn(json, "attribution");
-  panel.append(
-    group(
-      "Model",
-      settingRow(t("Default model"), t("Model or alias used when nothing else is chosen (settings.model)."), textControl(getIn(json, "model", ""), (value) => set("model", value.trim() || undefined), { placeholder: "sonnet / claude-sonnet-5-5", width: 220 })),
-      settingRow(t("Fallback models"), t("Comma separated; tried in order when the primary is overloaded."), textControl((getIn(json, "fallbackModel", []) || []).join(", "), (value) => set("fallbackModel", value.split(",").map((item) => item.trim()).filter(Boolean)), { placeholder: "haiku", width: 220 })),
-    ),
-    group(
-      "Behavior",
-      settingRow(t("Include git instructions"), t("Add git workflow guidance to the system prompt."), bool("includeGitInstructions", true)),
-      settingRow(t("Co-author commits"), t("Add a “Co-Authored-By: Claude” trailer to commits."), bool("includeCoAuthoredBy", true)),
-      settingRow(t("Attribution"), typeof attribution === "object" && attribution ? t("Customized (edit in Raw JSON).") : t("Mention Claude in commit messages and PR descriptions."), typeof attribution === "object" && attribution ? h("span.badge", t("custom")) : bool("attribution", true)),
-      settingRow(t("Respect .gitignore"), t("Hide ignored files from file suggestions and searches."), bool("respectGitignore", true)),
-      settingRow(t("Auto-approve project MCP servers"), t("Enable every server from .mcp.json without asking."), bool("enableAllProjectMcpServers", false)),
-      settingRow(t("Disable all hooks"), t("Temporarily turn every hook off."), bool("disableAllHooks", false)),
-      settingRow(t("Disable skill shell execution"), t("Block ! shell blocks inside skills."), bool("disableSkillShellExecution", false)),
-      settingRow(t("Default shell"), null, selectControl(getIn(json, "defaultShell", ""), [["", t("(auto)")], ["bash", "bash"], ["powershell", "powershell"]], (value) => set("defaultShell", value || undefined))),
-    ),
-    group(
-      "Limits & housekeeping",
-      settingRow(t("Keep transcripts for (days)"), t("Older sessions are cleaned up automatically (cleanupPeriodDays)."), num("cleanupPeriodDays", "30")),
-      settingRow(t("Bash output limit (chars)"), null, num("bashOutputMaxChars", "30000")),
-      settingRow(t("Background task output limit (chars)"), null, num("taskOutputMaxChars", "")),
-    ),
-    group(
-      "Status line",
-      h("p.muted.small", t("A command whose output is shown as the status line in the terminal UI. Receives session JSON on stdin.")),
-      settingRow(t("Command"), null, textControl(getIn(json, "statusLine.command", ""), (value) => edit((draft) => { if (value.trim()) setIn(draft, "statusLine", { ...(getIn(draft, "statusLine", {})), type: "command", command: value.trim() }); else setIn(draft, "statusLine", undefined); }), { width: 320, placeholder: "node ~/statusline.js" })),
-      settingRow(t("Padding"), null, num("statusLine.padding", "0")),
-    ),
-  );
-}
 
 // ---- raw JSON ---------------------------------------------------------------------------
 function locate(text, error) {

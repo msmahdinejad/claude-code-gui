@@ -5,6 +5,7 @@ import { execFile } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, isAbsolute, join, resolve } from "node:path";
+import { trackClaude } from "./claude-processes.mjs";
 
 export const DEFAULT_SYSTEM_PROMPT =
   "Reply in the language the user writes in. Keep code, shell commands, file paths and identifiers unchanged, in their original left-to-right form. Use clear, well-structured Markdown.";
@@ -126,7 +127,7 @@ export function loadConfig({ argv = process.argv.slice(2), env = process.env, ho
   }
   const rawProfiles = raw.profiles && Object.keys(raw.profiles).length ? raw.profiles : { default: { label: "Claude Code", ...(env.CLAUDE_BIN ? { command: env.CLAUDE_BIN } : {}) } };
   const profiles = Object.fromEntries(Object.entries(rawProfiles).map(([name, profile]) => [name, normalizeProfile(name, profile, baseline)]));
-  const defaultProfile = profiles[raw.defaultProfile] ? raw.defaultProfile : Object.keys(profiles)[0];
+  const defaultProfile = Object.hasOwn(profiles, String(raw.defaultProfile)) ? raw.defaultProfile : Object.keys(profiles)[0];
   const dataDir = resolve(interpolate(args.dataDir || env.WHEELHOUSE_DATA_DIR || raw.dataDir || join(home, ".wheelhouse"), baseline));
   return {
     file,
@@ -166,8 +167,12 @@ export function loadConfig({ argv = process.argv.slice(2), env = process.env, ho
   };
 }
 
+/** True when `name` is one of the configured profiles (not an Object.prototype key such as "constructor"). */
+export const hasProfile = (config, name) => typeof name === "string" && Object.hasOwn(config.profiles, name);
+
 /** Environment a profile runs with: the original process environment + the profile's changes. */
 export function profileEnv(config, name) {
+  if (!hasProfile(config, name)) throw new Error(`Unknown profile: ${name}`);
   const profile = config.profiles[name];
   const env = { ...config.baseline };
   for (const key of profile.unset) delete env[key];
@@ -183,7 +188,7 @@ export function profileEnv(config, name) {
 
 /** Make `name` the active profile: process.env is reset to the baseline and the profile layered on top. */
 export function applyProfile(config, name) {
-  if (!config.profiles[name]) throw new Error(`Unknown profile: ${name}`);
+  if (!hasProfile(config, name)) throw new Error(`Unknown profile: ${name}`);
   const next = profileEnv(config, name);
   for (const key of Object.keys(process.env)) if (!(key in next)) delete process.env[key];
   Object.assign(process.env, next);
@@ -217,15 +222,15 @@ export function profileSummary(config) {
 
 const run = (file, args, env, timeout = 20_000) =>
   new Promise((resolvePromise) => {
-    execFile(file, args, { env, timeout, windowsHide: true, encoding: "utf8", maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+    trackClaude(file, execFile(file, args, { env, timeout, windowsHide: true, encoding: "utf8", maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
       resolvePromise({ ok: !error, stdout: String(stdout || "").trim(), stderr: String(stderr || "").trim(), code: error?.code });
-    });
+    }));
   });
 
 /** Check a profile: does the executable run, which version, signed in? Never returns secrets. */
 export async function testProfile(config, name) {
+  if (!hasProfile(config, name)) throw new Error(`Unknown profile: ${name}`);
   const profile = config.profiles[name];
-  if (!profile) throw new Error(`Unknown profile: ${name}`);
   const env = profileEnv(config, name);
   const executable = resolveCommand(profile.command, env);
   if (executable.problem) return { ok: false, error: executable.problem };

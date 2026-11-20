@@ -1,17 +1,15 @@
-// Settings → Environment: settings.env key/value table + read-only gateway environment.
-import { h, toast } from "../core/dom.js";
+// Settings → Environment: settings.env key/value table + documented-variable catalog + read-only gateway environment.
+import { h } from "../core/dom.js";
 import { icon } from "../core/icons.js";
 import { t } from "../core/i18n.js";
 import { api } from "../core/api.js";
 import { registerSettingsSection } from "../core/registry.js";
-import { scopedPage, group, getIn, setIn, infoBanner } from "./settings-shared.js";
+import { scopedPage, group, getIn, setIn, safeEdit, infoBanner } from "./settings-shared.js";
+import { ENV_GROUPS, ENV_VARS, ENV_BY_NAME, isSecretName } from "./interface-env-data.js";
+import { pick } from "./interface-ui.js";
 
-const SECRET_RE = /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|HEADERS)/i;
-const KNOWN = [
-  "ANTHROPIC_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "DISABLE_TELEMETRY", "DISABLE_AUTOUPDATER", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
-  "BASH_DEFAULT_TIMEOUT_MS", "BASH_MAX_TIMEOUT_MS", "MAX_THINKING_TOKENS", "CLAUDE_CODE_MAX_OUTPUT_TOKENS", "MCP_TIMEOUT", "MCP_TOOL_TIMEOUT",
-  "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "NODE_EXTRA_CA_CERTS",
-];
+const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const groupTitle = new Map(ENV_GROUPS.map((entry) => [entry.id, entry.title]));
 
 registerSettingsSection({
   id: "environment",
@@ -22,58 +20,183 @@ registerSettingsSection({
     scopedPage(el, {
       title: "Environment",
       lead: "Variables set here are injected into every Claude Code session and its tools (settings.json → env).",
-      async render(body, { json, edit }) {
-        const env = getIn(json, "env", {});
-        const entries = Object.entries(env);
-        const revealed = new Set();
+      async render(body, { json, scope }) {
+        const rows = new Map(); // name -> row state (the name currently saved in the file)
+        let order = Object.entries(getIn(json, "env", {})).map(([key, value]) => [key, String(value)]);
         const table = h("div.env-table");
-        const datalist = h("datalist", { id: "env-known" }, KNOWN.map((name) => h("option", { value: name })));
+        const description = h("div.env-desc");
+        const datalist = h("datalist", { id: "env-known" }, ENV_VARS.map((entry) => h("option", { value: entry.name, label: pick(entry).slice(0, 80) })));
 
-        const draw = () => {
-          table.replaceChildren();
-          if (!entries.length) table.append(h("div.muted.rule-empty", t("No variables defined in this scope.")));
-          entries.forEach(([key, value], index) => {
-            const secret = SECRET_RE.test(key);
-            const show = !secret || revealed.has(key);
-            const valueInput = h("input.input.mono", { type: show ? "text" : "password", value: String(value), dir: "ltr", spellcheck: "false", autocomplete: "off" });
-            const keyInput = h("input.input.mono", { type: "text", value: key, dir: "ltr", spellcheck: "false", list: "env-known" });
-            const commit = () => edit((draft) => {
+        const describe = (name) => {
+          const entry = ENV_BY_NAME.get(name.trim());
+          if (!entry) {
+            description.replaceChildren(name.trim() ? h("span.muted", t("Not one of the documented variables; it is passed to Claude Code as written.")) : h("span.muted", t("Pick a name to see what it does. Names containing KEY, TOKEN or SECRET are masked.")));
+            return;
+          }
+          description.replaceChildren(
+            h("code", { dir: "ltr" }, entry.name),
+            " ",
+            h("span.badge", pick(groupTitle.get(entry.group))),
+            entry.secret ? h("span.badge.warn", icon("lock", 11), t("secret")) : "",
+            h("p", pick(entry)),
+          );
+        };
+
+        const emptyNote = () => {
+          if (!rows.size && !table.querySelector(".rule-empty")) table.append(h("div.muted.rule-empty", t("No variables defined in this scope.")));
+        };
+
+        const addRow = ([key, value]) => {
+          table.querySelector(".rule-empty")?.remove();
+          const row = { key, value };
+          const keyInput = h("input.input.mono", { type: "text", value: key, dir: "ltr", spellcheck: "false", list: "env-known", title: ENV_BY_NAME.has(key) ? pick(ENV_BY_NAME.get(key)) : "", "aria-label": t("Name") });
+          const valueInput = h("input.input.mono", { type: "text", value, dir: "ltr", spellcheck: "false", autocomplete: "off", "aria-label": t("Value") });
+          const error = h("div.env-error");
+          let revealed = false;
+          const reveal = h("button.icon-btn", { type: "button", onclick: () => { revealed = !revealed; decorate(); } }, icon("eye", 14));
+          const gap = h("span.icon-gap");
+          const decorate = () => {
+            const secret = isSecretName(keyInput.value.trim());
+            valueInput.type = secret && !revealed ? "password" : "text";
+            reveal.hidden = !secret;
+            gap.hidden = secret;
+            reveal.title = revealed ? t("Hide value") : t("Reveal value");
+            keyInput.title = ENV_BY_NAME.has(keyInput.value.trim()) ? pick(ENV_BY_NAME.get(keyInput.value.trim())) : "";
+          };
+          const fail = (message) => error.replaceChildren(message ? icon("alert", 12) : "", message || "");
+          const commit = async () => {
+            const newKey = keyInput.value.trim();
+            const newValue = valueInput.value;
+            if (newKey === row.key && newValue === row.value) return fail("");
+            if (!NAME_RE.test(newKey)) return fail(t("Variable names may contain letters, digits and underscores only."));
+            if (newKey !== row.key && rows.has(newKey)) return fail(t("A variable named {name} already exists here. Edit that one or pick another name.", { name: newKey }));
+            fail("");
+            const saved = await safeEdit(scope, (draft) => {
+              const current = getIn(draft, "env", {});
+              if (newKey !== row.key && newKey in current) throw new Error(t("A variable named {name} already exists here. Edit that one or pick another name.", { name: newKey }));
               const next = {};
-              for (const [k, v] of Object.entries(getIn(draft, "env", {}))) {
-                if (k === key) {
-                  const newKey = keyInput.value.trim();
-                  if (newKey) next[newKey] = valueInput.value;
+              let placed = false;
+              for (const [k, v] of Object.entries(current)) {
+                if (k === row.key) {
+                  next[newKey] = newValue;
+                  placed = true;
                 } else next[k] = v;
               }
+              if (!placed) next[newKey] = newValue;
               setIn(draft, "env", next);
             });
-            keyInput.addEventListener("change", commit);
-            valueInput.addEventListener("change", commit);
-            table.append(
-              h(
-                "div.env-row",
-                keyInput,
-                valueInput,
-                secret ? h("button.icon-btn", { type: "button", title: revealed.has(key) ? t("Hide value") : t("Reveal value"), onclick: () => { revealed.has(key) ? revealed.delete(key) : revealed.add(key); draw(); } }, icon("eye", 14)) : h("span.icon-gap"),
-                h("button.icon-btn", { type: "button", title: t("Remove"), onclick: () => edit((draft) => { const next = { ...getIn(draft, "env", {}) }; delete next[key]; setIn(draft, "env", next); }) }, icon("trash", 14)),
-              ),
-            );
+            if (!saved) return fail(t("Not saved."));
+            rows.delete(row.key);
+            row.key = newKey;
+            row.value = newValue;
+            rows.set(newKey, row);
+          };
+          // Name and value are committed together when focus leaves the row (or on Enter), never between the two fields.
+          const wrap = h("div.env-item");
+          wrap.addEventListener("focusout", (event) => {
+            if (!wrap.contains(event.relatedTarget)) commit();
           });
+          for (const input of [keyInput, valueInput]) input.addEventListener("keydown", (event) => event.key === "Enter" && (event.preventDefault(), commit()));
+          keyInput.addEventListener("input", () => { decorate(); describe(keyInput.value); });
+          keyInput.addEventListener("focus", () => describe(keyInput.value));
+          valueInput.addEventListener("focus", () => describe(keyInput.value));
+          wrap.addEventListener("mouseenter", () => describe(keyInput.value));
+          const remove = h("button.icon-btn", {
+            type: "button",
+            title: t("Remove"),
+            onclick: async () => {
+              const saved = await safeEdit(scope, (draft) => { const next = { ...getIn(draft, "env", {}) }; delete next[row.key]; setIn(draft, "env", next); });
+              if (!saved) return;
+              rows.delete(row.key);
+              wrap.remove();
+              emptyNote();
+            },
+          }, icon("trash", 14));
+          wrap.append(h("div.env-row", keyInput, valueInput, reveal, gap, remove), error);
+          rows.set(key, row);
+          decorate();
+          table.append(wrap);
         };
-        draw();
 
-        const newKey = h("input.input.mono", { type: "text", placeholder: "NAME", dir: "ltr", list: "env-known", spellcheck: "false" });
-        const newValue = h("input.input.mono", { type: "text", placeholder: t("value"), dir: "ltr", spellcheck: "false", autocomplete: "off" });
-        const add = () => {
+        if (!order.length) emptyNote();
+        order.forEach(addRow);
+        order = null;
+
+        // ---- add row ----
+        const newKey = h("input.input.mono", { type: "text", placeholder: "NAME", dir: "ltr", list: "env-known", spellcheck: "false", "aria-label": t("Name") });
+        const newValue = h("input.input.mono", { type: "text", placeholder: t("value"), dir: "ltr", spellcheck: "false", autocomplete: "off", "aria-label": t("Value") });
+        const addError = h("div.env-error");
+        let addRevealed = false;
+        const addReveal = h("button.icon-btn", { type: "button", onclick: () => { addRevealed = !addRevealed; syncAdd(); } }, icon("eye", 14));
+        const addGap = h("span.icon-gap");
+        const syncAdd = () => {
+          const secret = isSecretName(newKey.value.trim());
+          newValue.type = secret && !addRevealed ? "password" : "text";
+          addReveal.hidden = !secret;
+          addGap.hidden = secret;
+          addReveal.title = addRevealed ? t("Hide value") : t("Reveal value");
+        };
+        newKey.addEventListener("input", () => { syncAdd(); describe(newKey.value); });
+        newKey.addEventListener("focus", () => describe(newKey.value));
+        const add = async () => {
           const key = newKey.value.trim();
-          if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) return toast(t("Variable names may contain letters, digits and underscores only."), "error");
-          edit((draft) => setIn(draft, "env", { ...getIn(draft, "env", {}), [key]: newValue.value }));
+          addError.replaceChildren();
+          const problem = !NAME_RE.test(key) ? t("Variable names may contain letters, digits and underscores only.") : rows.has(key) ? t("A variable named {name} already exists here. Edit that one or pick another name.", { name: key }) : "";
+          if (problem) return addError.replaceChildren(icon("alert", 12), problem);
+          const value = newValue.value;
+          const saved = await safeEdit(scope, (draft) => {
+            if (key in getIn(draft, "env", {})) throw new Error(t("A variable named {name} already exists here. Edit that one or pick another name.", { name: key }));
+            setIn(draft, "env", { ...getIn(draft, "env", {}), [key]: value });
+          });
+          if (!saved) return;
+          addRow([key, value]);
+          newKey.value = "";
+          newValue.value = "";
+          syncAdd();
+          newKey.focus();
         };
         newValue.addEventListener("keydown", (event) => event.key === "Enter" && (event.preventDefault(), add()));
+        newKey.addEventListener("keydown", (event) => event.key === "Enter" && (event.preventDefault(), newValue.focus()));
+        syncAdd();
+        describe("");
+
+        // ---- documented-variable catalog ----
+        const search = h("input.input", { type: "search", placeholder: t("Search documented variables"), dir: "auto", "aria-label": t("Search") });
+        const catalog = h("div.env-catalog");
+        const drawCatalog = () => {
+          catalog.replaceChildren();
+          const needle = search.value.trim().toLowerCase();
+          for (const grp of ENV_GROUPS) {
+            const vars = grp.vars.filter((entry) => !needle || entry.name.toLowerCase().includes(needle) || entry.en.toLowerCase().includes(needle) || entry.fa.includes(needle));
+            if (!vars.length) continue;
+            const details = h("details.env-group", { open: Boolean(needle) }, h("summary", h("strong", pick(grp.title)), h("span.badge", String(vars.length))));
+            let filled = false;
+            const fill = () => {
+              if (filled) return;
+              filled = true;
+              for (const entry of vars) {
+                details.append(
+                  h(
+                    "div.env-cat-row",
+                    h("span.grow", h("code", { dir: "ltr" }, entry.name), entry.secret ? h("span.badge.warn", icon("lock", 11), t("secret")) : null, h("small.muted", pick(entry))),
+                    h("button.btn.small.ghost", { type: "button", onclick: () => { newKey.value = entry.name; syncAdd(); describe(entry.name); newValue.focus(); newKey.scrollIntoView({ block: "center" }); } }, icon("plus", 12), t("Use")),
+                  ),
+                );
+              }
+            };
+            details.addEventListener("toggle", () => details.open && fill());
+            if (details.open) fill();
+            catalog.append(details);
+          }
+          if (!catalog.children.length) catalog.append(h("div.muted.rule-empty", t("No documented variable matches.")));
+        };
+        search.addEventListener("input", drawCatalog);
+        drawCatalog();
 
         body.append(
-          group("Variables", datalist, table, h("div.env-row.env-add", newKey, newValue, h("button.btn.small", { type: "button", onclick: add }, icon("plus", 13), t("Add")))),
-          infoBanner(t("Values are stored in plain text in the settings file. Names containing KEY, TOKEN or SECRET are masked here but not encrypted on disk.")),
+          group("Variables", datalist, table, h("div.env-row.env-add", newKey, newValue, addReveal, addGap, h("button.btn.small", { type: "button", onclick: add }, icon("plus", 13), t("Add"))), addError, description),
+          infoBanner(t("Values are stored in plain text in the settings file. Variables the docs mark as secrets, and names containing KEY, TOKEN or SECRET, are masked here but not encrypted on disk.")),
+          group("Documented variables", h("p.muted.small", t("Claude Code's documented environment variables, grouped. “Use” fills the name above; shell-only ones (for example CLAUDE_CONFIG_DIR in project settings) may be ignored in a settings file.")), search, catalog),
         );
       },
     });

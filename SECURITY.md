@@ -17,13 +17,17 @@ What it does:
 
 - **Loopback only.** The server binds to `127.0.0.1`; the port is never exposed on the network by Wheelhouse.
 - **Origin checks.** Every `/api` request must come from a loopback `Host`, and state-changing requests (POST, PUT,
-  DELETE) must carry a same-origin `Origin` header. This blocks other websites you visit from driving the local server
-  (CSRF) and DNS-rebinding attacks.
+  DELETE) must carry a same-origin `Origin` header. A request that a browser marks as coming from another site
+  (`Sec-Fetch-Site` other than `same-origin`, or a `Referer` from another origin) is refused for every method, so a
+  page you visit cannot trigger even a GET (an image or script tag sends no `Origin`). This blocks other websites from
+  driving the local server (CSRF) and DNS-rebinding attacks; tools without browser headers (the tray, curl) still work.
 - **Strict CSP.** `default-src 'self'`; no inline scripts, no remote assets, no third-party requests from the UI.
 - **No secrets to the browser.** Environment values of the active profile are never sent to the UI (only variable
   names, plus a short allow-list of harmless values); API keys and headers stay in the server process.
-- **Path hygiene.** Routes that write (editor, terminal working directory, git actions) resolve paths and refuse to
-  leave the session's project folder; git arguments are validated; the terminal only starts in existing directories.
+- **Path hygiene.** Routes that write (editor, terminal working directory, git actions) resolve paths, follow symlinks
+  and refuse paths outside the project folder the request names; git revisions and branch names are validated (nothing
+  that starts with `-` reaches git as an option); the terminal only starts in existing directories. Memory, rules,
+  keybindings and theme routes only touch Markdown/JSON files inside their own folders.
 - **Sanitized rendering.** Model output is rendered as Markdown through DOMPurify; links open with `noopener`.
 - **Permissions stay Claude Code's.** Tool approvals, permission modes, allow/deny rules and hooks are enforced by the
   Claude Code executable, not re-implemented here. "Bypass permissions" must be enabled explicitly in Settings.

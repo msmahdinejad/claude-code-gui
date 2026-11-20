@@ -4,12 +4,29 @@ import { icon } from "../core/icons.js";
 import { t } from "../core/i18n.js";
 import { app, bus, setPrefs } from "../core/state.js";
 
-import { isScratchCwd, newSession, openSession, promptRename, pinSession, archiveSession, deleteSession, forkFrom } from "../session.js";
+import { isScratchCwd, newSession, openSession, promptRename, pinSession, archiveSession, deleteSession, forkFrom, promptTag, tagSession } from "../session.js";
 import { openSettings } from "./settings.js";
 
 
 let filter = "all"; // all | pinned | running | archived
 let query = "";
+
+// Tag filter and sort order are per-browser conveniences, so they live in localStorage (every access guarded).
+const stored = (key, fallback) => { try { return localStorage.getItem(key) || fallback; } catch { return fallback; } };
+const keep = (key, value) => { try { localStorage.setItem(key, value); } catch { /* private window: not remembered */ } };
+const SORTS = [["activity", "Last activity"], ["created", "Created"], ["name", "Name"]];
+let sortBy = stored("wheelhouse-sidebar-sort", "activity");
+if (!SORTS.some(([key]) => key === sortBy)) sortBy = "activity";
+let tagFilter = stored("wheelhouse-sidebar-tag", ""); // "" = every tag
+
+function sortSessions(sessions) {
+  const by = {
+    activity: (a, b) => (b.lastModified || 0) - (a.lastModified || 0),
+    created: (a, b) => (b.createdAt || b.lastModified || 0) - (a.createdAt || a.lastModified || 0),
+    name: (a, b) => String(a.title || "").localeCompare(String(b.title || ""), undefined, { sensitivity: "base", numeric: true }),
+  }[sortBy];
+  return [...sessions].sort(by);
+}
 
 export function mountSidebar(root) {
   const search = h("input.input", { type: "search", placeholder: t("Search sessions"), "aria-label": t("Search sessions"), dir: "auto" });
@@ -32,7 +49,22 @@ export function mountSidebar(root) {
 
   function renderFilters() {
     const defs = [["all", t("All")], ["pinned", t("Pinned")], ["running", t("Active")], ["archived", t("Archived")]];
-    filters.replaceChildren(...defs.map(([key, label]) => h(`button.chip${filter === key ? ".active" : ""}`, { type: "button", onclick: () => { filter = key; renderFilters(); renderList(); } }, label)));
+    const tags = [...new Set(app.sessions.map((session) => session.tag).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    if (tagFilter && !tags.includes(tagFilter)) tagFilter = ""; // the last session with that tag lost it
+    const chips = defs.map(([key, label]) => h(`button.chip${filter === key ? ".active" : ""}`, { type: "button", onclick: () => { filter = key; renderFilters(); renderList(); } }, label));
+    const sortLabel = t(SORTS.find(([key]) => key === sortBy)[1]);
+    const sortBtn = h("button.chip.sb-sort", { type: "button", title: t("Sort sessions"), "aria-label": `${t("Sort sessions")}: ${sortLabel}`, onclick: (event) => menu(event.currentTarget, SORTS.map(([key, label]) => ({ label: t(label), checked: sortBy === key, onClick: () => { sortBy = key; keep("wheelhouse-sidebar-sort", key); renderFilters(); renderList(); } })), { placement: "bottom-end" }) }, icon("chevrons-up-down", 12), sortLabel);
+    const tagBtn = tags.length
+      ? h(`button.chip.sb-tagfilter${tagFilter ? ".active" : ""}`, { type: "button", title: t("Filter by tag"), onclick: (event) => menu(event.currentTarget, [{ label: t("All tags"), checked: !tagFilter, onClick: () => setTagFilter("") }, "-", ...tags.map((tag) => ({ label: tag, icon: "tag", checked: tagFilter === tag, onClick: () => setTagFilter(tag) }))], { placement: "bottom-end" }) }, icon("tag", 12), tagFilter || t("Tags"))
+      : null;
+    filters.replaceChildren(...chips, h("span.grow"), tagBtn, sortBtn);
+  }
+
+  function setTagFilter(tag) {
+    tagFilter = tag;
+    keep("wheelhouse-sidebar-tag", tag);
+    renderFilters();
+    renderList();
   }
 
   function matches(session) {
@@ -40,15 +72,16 @@ export function mountSidebar(root) {
     if (session.archived) return false;
     if (filter === "pinned" && !session.pinned) return false;
     if (filter === "running" && !["running", "requires_action"].includes(app.live.get(session.id)?.state || session.state)) return false;
+    if (tagFilter && session.tag !== tagFilter) return false;
     if (query) {
-      const hay = `${session.title} ${session.firstPrompt || ""} ${session.cwd || ""} ${session.gitBranch || ""}`.toLowerCase();
+      const hay = `${session.title} ${session.firstPrompt || ""} ${session.cwd || ""} ${session.gitBranch || ""} ${session.tag || ""}`.toLowerCase();
       if (!hay.includes(query)) return false;
     }
     return true;
   }
 
   function renderList() {
-    const sessions = app.sessions.filter(matches);
+    const sessions = sortSessions(app.sessions.filter(matches));
     if (!sessions.length) {
       list.replaceChildren(h("div.empty", icon("message-square", 24), h("strong", query ? t("No matches") : t("No sessions yet")), h("p", query ? "" : t("Start a new session to begin."))));
       return;
@@ -88,6 +121,7 @@ export function mountSidebar(root) {
       { role: "button", tabindex: "0", onclick: () => { openSession(session.id, { cwd: session.cwd }); closeOnNarrow(); }, onkeydown: (event) => (event.key === "Enter" || event.key === " ") && (event.preventDefault(), openSession(session.id, { cwd: session.cwd }), closeOnNarrow()), oncontextmenu: (event) => { event.preventDefault(); sessionMenu(event.currentTarget, session); } },
       h(`span.sb-dot.${pending ? "requires_action" : state}`),
       h("span.sb-title", { dir: "auto", title: session.title }, session.title || t("Untitled session")),
+      session.tag ? h("span.sb-tag", { dir: "auto", title: session.tag }, session.tag) : null,
       h("span.sb-sub", formatTime(session.lastModified)),
       h("button.icon-btn.sb-more", { type: "button", title: t("More"), onclick: (event) => { event.stopPropagation(); sessionMenu(event.currentTarget, session); } }, icon("more-horizontal", 15)),
     );
@@ -100,6 +134,8 @@ export function mountSidebar(root) {
       { label: session.pinned ? t("Unpin") : t("Pin"), icon: "pin", onClick: () => pinSession(session.id, !session.pinned) },
       { label: session.archived ? t("Unarchive") : t("Archive"), icon: "archive", onClick: () => archiveSession(session.id, !session.archived) },
       { label: t("Fork"), icon: "split", onClick: () => forkFrom(session.id) },
+      { label: session.tag ? t("Change tag…") : t("Add tag…"), icon: "tag", onClick: () => promptTag(session.id) },
+      session.tag ? { label: t("Remove tag"), icon: "x", onClick: () => tagSession(session.id, null) } : null,
       "-",
       { label: t("Copy session ID"), icon: "copy", onClick: () => copyText(session.id) },
       { label: t("Copy resume command"), icon: "terminal", onClick: () => copyText(`${app.config?.cli || "claude"} --resume ${session.id}`) },
@@ -115,7 +151,8 @@ export function mountSidebar(root) {
   );
 
   const refreshFoot = () => {
-    cwdLabel.textContent = isScratchCwd(app.currentCwd) ? t("New folder") : shortPath(app.currentCwd || app.config?.defaultCwd || "", 28);
+    // A path stays left-to-right inside a right-to-left label, otherwise its leading "…/" lands on the wrong side.
+    cwdLabel.replaceChildren(isScratchCwd(app.currentCwd) ? t("New folder") : h("bdi", { dir: "ltr" }, shortPath(app.currentCwd || app.config?.defaultCwd || "", 28)));
     cwdLabel.title = app.currentCwd || "";
   };
 
@@ -123,7 +160,7 @@ export function mountSidebar(root) {
   renderFilters();
   renderList();
   refreshFoot();
-  bus.on("sessions", renderList);
+  bus.on("sessions", () => { renderFilters(); renderList(); });
   bus.on("live", renderList);
   bus.on("current", () => { renderList(); refreshFoot(); });
   bus.on("prefs", () => { renderList(); });

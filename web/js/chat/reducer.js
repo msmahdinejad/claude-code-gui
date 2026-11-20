@@ -25,6 +25,7 @@ export function createConversation(id) {
     todos: [],
     lastResult: null,
     suggestion: null,
+    goal: null,
     init: null,
     meta: {},
     contextUsage: null,
@@ -69,12 +70,33 @@ export function contentBlocks(content) {
   return Array.isArray(content) ? content : [];
 }
 
-export function toolResultText(content) {
+/** Text of a tool result. images:false leaves image blocks out (they are kept apart, see toolResultImages). */
+export function toolResultText(content, { images = true } = {}) {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return content == null ? "" : JSON.stringify(content);
   return content
+    .filter((part) => images || part?.type !== "image")
     .map((part) => (part.type === "text" ? part.text : part.type === "image" ? "[image]" : JSON.stringify(part)))
     .join("\n");
+}
+
+export const MAX_RESULT_IMAGES = 8;
+export const MAX_IMAGE_CHARS = 8 * 1024 * 1024; // base64 characters (~6 MB of image) per picture
+
+/** Image blocks of a tool result ({ type: "image", source: { type: "base64", media_type, data } }, or the MCP shape
+ *  { type: "image", data, mimeType }), capped in number and size: a picture over the cap keeps only its size. */
+export function toolResultImages(content) {
+  if (!Array.isArray(content)) return [];
+  const out = [];
+  for (const part of content) {
+    if (part?.type !== "image") continue;
+    const data = part.source?.data ?? part.data;
+    const mediaType = part.source?.media_type ?? part.mimeType ?? "image/png";
+    if (typeof data !== "string" || !/^image\//.test(mediaType)) continue;
+    if (out.length >= MAX_RESULT_IMAGES) { out.push({ mediaType, omitted: "count" }); break; }
+    out.push(data.length > MAX_IMAGE_CHARS ? { mediaType, omitted: "size", size: Math.round(data.length * 0.75) } : { mediaType, data });
+  }
+  return out;
 }
 
 const TAG = (name, text) => new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(text)?.[1];
@@ -127,7 +149,7 @@ function assistantItemFor(conv, messageId, seed) {
   return item;
 }
 
-function applyFinalBlock(conv, item, block, parentToolUseId) {
+function applyFinalBlock(conv, item, block, parentToolUseId, uuid) {
   if (block.type === "tool_use" || block.type === "server_tool_use" || block.type === "mcp_tool_use") {
     const tool = getTool(conv, block.id, { name: block.name, input: block.input, server: block.server_name, owner: item.key });
     if (tool.status === "pending" || tool.status === "streaming") tool.status = "running";
@@ -135,7 +157,8 @@ function applyFinalBlock(conv, item, block, parentToolUseId) {
     tool.parentToolUseId = parentToolUseId || null;
     if (block.name === "TodoWrite" && Array.isArray(block.input?.todos)) conv.todos = block.input.todos;
     const existing = item.blocks.find((entry) => entry.type === "tool" && entry.toolUseId === block.id);
-    if (!existing) item.blocks.push({ type: "tool", toolUseId: block.id });
+    if (!existing) item.blocks.push({ type: "tool", toolUseId: block.id, uuid });
+    else if (uuid) existing.uuid = uuid;
     touchTool(conv, tool);
     return;
   }
@@ -151,8 +174,9 @@ function applyFinalBlock(conv, item, block, parentToolUseId) {
       target.text = text;
       target.streaming = false;
       target.redacted = block.type === "redacted_thinking";
+      if (uuid) target.uuid = uuid;
     } else {
-      item.blocks.push({ type, text, streaming: false, redacted: block.type === "redacted_thinking" });
+      item.blocks.push({ type, text, streaming: false, redacted: block.type === "redacted_thinking", uuid });
     }
     return;
   }
@@ -199,10 +223,66 @@ function applyAssistant(conv, msg) {
   item.error = msg.error || item.error;
   item.aborted = msg.aborted || item.aborted;
   item.at ??= msg.timestamp ? Date.parse(msg.timestamp) : Date.now();
-  if (item.streaming && message.stop_reason) item.streaming = false;
-  conv.drafts.delete(messageId);
-  for (const block of blocks) applyFinalBlock(conv, item, block, msg.parent_tool_use_id);
+  // Claude Code sends one assistant message per content block, with stop_reason null, while the stream goes on: the
+  // draft (and its streaming state) lives until message_stop or the result. A message that carries its stop_reason
+  // (older CLIs, history) is complete.
+  for (const block of blocks) applyFinalBlock(conv, item, block, msg.parent_tool_use_id, uuid);
+  if (message.stop_reason) finishStreaming(conv, item);
   touch(conv, item);
+}
+
+/** A reply is complete: nothing in it streams any more and its draft is dropped. */
+function finishStreaming(conv, item) {
+  let changed = item.streaming;
+  item.streaming = false;
+  for (const block of item.blocks) {
+    if (block.type !== "tool" && block.streaming) {
+      block.streaming = false;
+      changed = true;
+    }
+  }
+  if (item.messageId) conv.drafts.delete(item.messageId);
+  if (changed) touch(conv, item);
+}
+
+/** The turn (or the process) ended: every reply still marked as streaming is complete. */
+function finishAllStreaming(conv) {
+  for (const item of conv.drafts.values()) finishStreaming(conv, item);
+  for (const item of conv.items) if (item.kind === "assistant" && (item.streaming || item.blocks.some((block) => block.streaming))) finishStreaming(conv, item);
+  conv.drafts.clear();
+}
+
+/** Take items out of the timeline (a refused reply the CLI retracted). */
+function removeItem(conv, item) {
+  const index = conv.items.indexOf(item);
+  if (index < 0) return;
+  conv.items.splice(index, 1);
+  conv.byKey.delete(item.key);
+  if (item.messageId && conv.byMessageId.get(item.messageId) === item) conv.byMessageId.delete(item.messageId);
+  if (item.messageId) conv.drafts.delete(item.messageId);
+  conv.evicted = (conv.evicted || 0) + 1;
+  conv.version += 1;
+}
+
+/** retracted_message_uuids: the wire uuids of a refused partial reply. Unknown or already-removed uuids are a no-op. */
+function evictMessages(conv, uuids) {
+  const gone = new Set(uuids || []);
+  if (!gone.size) return;
+  for (const item of [...conv.items]) {
+    if (item.kind === "assistant") {
+      const own = [...(item.uuids || [])];
+      if (!own.some((uuid) => gone.has(uuid))) continue;
+      if (own.every((uuid) => gone.has(uuid))) {
+        removeItem(conv, item);
+        continue;
+      }
+      for (const uuid of own) if (gone.has(uuid)) item.uuids.delete(uuid);
+      item.blocks = item.blocks.filter((block) => !(block.uuid && gone.has(block.uuid)));
+      touch(conv, item);
+    } else if (item.uuid && gone.has(item.uuid)) {
+      removeItem(conv, item);
+    }
+  }
 }
 
 // ---- user messages -----------------------------------------------------------------
@@ -216,9 +296,11 @@ function applyUser(conv, msg, { live }) {
     if (block.type !== "tool_result") continue;
     hadResult = true;
     const tool = getTool(conv, block.tool_use_id);
+    const images = toolResultImages(block.content);
     tool.result = {
       content: block.content,
-      text: toolResultText(block.content),
+      text: toolResultText(block.content, { images: !images.length }),
+      images,
       isError: Boolean(block.is_error),
       structured: msg.tool_use_result ?? tool.result?.structured,
     };
@@ -262,6 +344,8 @@ function applyStreamEvent(conv, msg) {
   const event = msg.event || {};
   if (event.type === "message_start") {
     const message = event.message || {};
+    // Main-thread replies stream one at a time: an older draft that never got its message_stop is complete.
+    for (const [id, other] of [...conv.drafts]) if (id !== message.id) finishStreaming(conv, other);
     const item = assistantItemFor(conv, message.id, {});
     item.streaming = true;
     item.model = message.model || item.model;
@@ -327,8 +411,7 @@ function applyStreamEvent(conv, msg) {
     return;
   }
   if (event.type === "message_stop") {
-    item.streaming = false;
-    for (const entry of item.blocks) if (entry.type !== "tool") entry.streaming = false;
+    finishStreaming(conv, item);
     touch(conv, item);
   }
 }
@@ -414,6 +497,7 @@ function applySystem(conv, msg, { live }) {
         usage: msg.usage ?? task.usage,
         lastTool: msg.last_tool_name ?? task.lastTool,
         outputFile: msg.output_file ?? task.outputFile,
+        workflowName: msg.workflow_name ?? task.workflowName,
       });
       conv.tasks.set(id, task);
       if (task.toolUseId) {
@@ -432,11 +516,61 @@ function applySystem(conv, msg, { live }) {
       conv.version += 1;
       break;
     case "permission_denied":
-      pushItem(conv, { kind: "notice", level: "warn", text: `Denied: ${msg.tool_name || ""}`.trim(), detail: msg.message || msg.reason, subtype: "denied" });
+      // text is a t() template, params fill it in when it is shown (so it translates)
+      pushItem(conv, { kind: "notice", level: "warn", text: "Denied: {tool}", params: { tool: msg.tool_name || "" }, detail: msg.message || msg.reason, subtype: "denied" });
       break;
     case "conversation_reset":
+      conv.goal = null;
       pushItem(conv, { kind: "boundary", text: "Conversation cleared", subtype: "clear" });
       break;
+    case "model_refusal_fallback":
+    case "model_refusal_no_fallback": {
+      evictMessages(conv, msg.retracted_message_uuids);
+      const fallback = msg.subtype === "model_refusal_fallback";
+      const prompt = msg.refused_user_message_uuid ? conv.items.find((item) => item.kind === "user" && item.uuid === msg.refused_user_message_uuid) : null;
+      pushItem(conv, {
+        kind: "notice",
+        level: "warn",
+        subtype: "refusal",
+        text: !fallback ? "{model} declined this request." : msg.scope === "local" ? "{model} declined a side request; that reply came from {fallback}." : "{model} declined this request; it was retried with {fallback}.",
+        params: { model: msg.original_model || "", fallback: msg.fallback_model || "" },
+        detail: [msg.content, msg.api_refusal_category ? `category: ${msg.api_refusal_category}` : "", msg.api_refusal_explanation || ""].filter(Boolean).join("\n") || null,
+        retryText: prompt?.text || null,
+      });
+      break;
+    }
+    case "memory_recall": {
+      const memories = Array.isArray(msg.memories) ? msg.memories : [];
+      if (!memories.length) break;
+      pushItem(conv, {
+        kind: "notice",
+        level: "info",
+        subtype: "memory",
+        text: msg.mode === "synthesize" ? "Recalled from memory" : "Recalled {n} memories",
+        params: { n: memories.length },
+        memories: memories.map((memory) => ({ path: memory.path, scope: memory.scope, content: memory.content || "" })),
+      });
+      break;
+    }
+    case "plugin_install": {
+      // One notice per install run, updated as plugins come in.
+      let item = conv.pluginInstall && conv.byKey.get(conv.pluginInstall);
+      if (!item || msg.status === "started") {
+        item = pushItem(conv, { kind: "notice", level: "info", subtype: "plugins", text: "Installing plugins…", plugins: [] });
+        conv.pluginInstall = item.key;
+      }
+      if (msg.name && (msg.status === "installed" || msg.status === "failed")) item.plugins.push({ name: msg.name, ok: msg.status === "installed", error: msg.error || "" });
+      const failed = item.plugins.filter((plugin) => !plugin.ok).length;
+      if (msg.status === "completed") item.text = failed ? "Plugin installation finished with {n} error(s)" : "Plugins installed";
+      if (msg.status === "failed" && !msg.name) item.text = "Plugin installation failed";
+      item.params = { n: failed };
+      item.level = failed || (msg.status === "failed" && !msg.name) ? "warn" : "info";
+      item.detail = [...item.plugins.map((plugin) => `${plugin.ok ? "✓" : "✗"} ${plugin.name}${plugin.error ? ` — ${plugin.error}` : ""}`), msg.error && !msg.name ? msg.error : ""].filter(Boolean).join("\n") || null;
+      touch(conv, item);
+      break;
+    }
+    case "thinking_tokens":
+      break; // progress counters only
     case "informational":
     case "notification":
       pushItem(conv, { kind: "notice", level: msg.level === "error" ? "error" : msg.level === "warning" ? "warn" : "info", text: msg.message || msg.text || "", subtype: "info" });
@@ -448,7 +582,7 @@ function applySystem(conv, msg, { live }) {
 }
 
 function applyResult(conv, msg) {
-  conv.drafts.clear();
+  finishAllStreaming(conv);
   conv.state = conv.state === "requires_action" ? "idle" : conv.state === "running" ? "idle" : conv.state;
   conv.turnStartedAt = null;
   conv.statusText = null;
@@ -523,6 +657,11 @@ export function applyMessage(conv, msg, { live = true } = {}) {
         if (tool) { tool.summary = msg.summary; touchTool(conv, tool); }
       }
       break;
+    case "active_goal":
+      // /goal: { condition, iterations, set_at, tokens_at_start, last_reason? }, null once it is met or cleared.
+      conv.goal = msg.value ? { ...msg.value } : null;
+      conv.version += 1;
+      break;
     case "prompt_suggestion":
       conv.suggestion = msg.suggestion || null;
       conv.version += 1;
@@ -559,7 +698,7 @@ export function applyMessage(conv, msg, { live = true } = {}) {
     case "wh_closed":
       conv.state = "closed";
       conv.requests.clear();
-      conv.drafts.clear();
+      finishAllStreaming(conv);
       for (const tool of conv.tools.values()) if (tool.status === "running" || tool.status === "streaming") { tool.status = "interrupted"; touchTool(conv, tool); }
       stopTasks(conv);
       conv.version += 1;

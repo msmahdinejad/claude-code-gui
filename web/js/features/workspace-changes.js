@@ -1,12 +1,12 @@
 // Inspector tab "Changes": git status, inline diffs, stage/unstage/discard, commit, branches, log graph,
 // and the list of files Claude changed in this session.
-import { h, ibtn, popover, confirmDialog, promptDialog, toast, errorMessage, formatTime, copyText, debounce, baseName } from "../core/dom.js";
+import { h, ibtn, popover, confirmDialog, promptDialog, modal, toast, errorMessage, formatTime, copyText, debounce, baseName } from "../core/dom.js";
 import { icon } from "../core/icons.js";
 import { t } from "../core/i18n.js";
 import { app, bus } from "../core/state.js";
 import { registerInspectorTab, registerCommand } from "../core/registry.js";
 import { lineDiff } from "../chat/tools.js";
-import { wsGet, wsPost, guarded, cwdNow, relToCwd, pathLabel, renderDiff, parseDiff, diffStats, segmented, loadingBox, errorBox } from "./workspace-common.js";
+import { wsGet, wsPost, guarded, cwdNow, relToCwd, pathLabel, renderDiff, parseDiff, diffStats, segmented, loadingBox, errorBox, formatBytes } from "./workspace-common.js";
 
 // ---- persisted view prefs --------------------------------------------------------------
 const PREF_KEY = "wheelhouse-ws-diff";
@@ -17,7 +17,7 @@ const savePrefs = () => { try { localStorage.setItem(PREF_KEY, JSON.stringify(pr
 
 // ---- module state ----------------------------------------------------------------------
 const S = {
-  view: "changes", // changes | session | log | branches
+  view: "changes", // changes | session | log | branches | worktrees
   status: null,
   statusFor: null,
   error: null,
@@ -33,6 +33,10 @@ const S = {
   amend: false,
   stageAll: false,
   focusCommit: false,
+  pr: null, // { for, loading } | GET /api/ws/gh/pr result + { for }
+  stashes: null, // { for, list } | null
+  worktrees: null, // GET /api/ws/git/worktrees result | { error }
+  busy: "", // "push" | "pull" | "stash" while one runs
 };
 let root = null; // current panel container
 let els = null;
@@ -62,6 +66,7 @@ async function refresh({ quiet = false } = {}) {
   S.loading = false;
   updateBadge();
   draw();
+  if (S.status?.isRepo) { loadStashes(); loadPr(); }
 }
 
 function updateBadge() {
@@ -119,6 +124,7 @@ function drawHead() {
     st?.ahead ? h("span.badge.accent", { title: t("Commits ahead of upstream") }, `↑${st.ahead}`) : null,
     st?.behind ? h("span.badge.warn", { title: t("Commits behind upstream") }, `↓${st.behind}`) : null,
     h("span", { style: { flex: 1 } }),
+    st?.isRepo && !st.detached ? syncButtons(st) : null,
     ibtn("refresh", t("Refresh"), () => refresh(), { size: 15 }),
   );
   const count = (n) => (n ? ` ${n}` : "");
@@ -127,8 +133,9 @@ function drawHead() {
     ["session", t("Session")],
     ["log", t("Log")],
     ["branches", t("Branches")],
+    ["worktrees", t("Worktrees")],
   ];
-  els.tabs.replaceChildren(...tabs.map(([id, label]) => h(`button${S.view === id ? ".active" : ""}`, { type: "button", onclick: () => { S.view = id; if (id === "log") S.log = null; if (id === "branches") S.branches = null; draw(); if (id === "log") loadLog(); if (id === "branches") loadBranches(); } }, label)));
+  els.tabs.replaceChildren(...tabs.map(([id, label]) => h(`button${S.view === id ? ".active" : ""}`, { type: "button", onclick: () => { S.view = id; if (id === "log") S.log = null; if (id === "branches") S.branches = null; draw(); if (id === "log") loadLog(); if (id === "branches") loadBranches(); if (id === "worktrees") loadWorktrees(); } }, label)));
 }
 
 function bodyFor() {
@@ -146,7 +153,8 @@ function bodyFor() {
   }
   if (S.view === "log") return logView();
   if (S.view === "branches") return branchesView();
-  return changesView();
+  if (S.view === "worktrees") return worktreesView();
+  return h("div.ws-changes-wrap", prCard(), changesView(), stashGroup());
 }
 
 // ---- changes view ----------------------------------------------------------------------
@@ -158,7 +166,7 @@ function changesView() {
   const parts = [];
   if (st.conflicts.length) parts.push(group(t("Merge conflicts"), "conflict", st.conflicts, [], "danger"));
   if (st.staged.length) parts.push(group(t("Staged"), "staged", st.staged, [{ icon: "minus", label: t("Unstage all"), run: () => act("unstageAll") }]));
-  if (st.unstaged.length) parts.push(group(t("Changes"), "unstaged", st.unstaged, [{ icon: "plus", label: t("Stage all"), run: () => act("stage", { paths: st.unstaged.map((f) => f.path) }) }]));
+  if (st.unstaged.length) parts.push(group(t("Changes"), "unstaged", st.unstaged, [{ icon: "archive", label: t("Stash changes…"), run: () => stashChanges() }, { icon: "plus", label: t("Stage all"), run: () => act("stage", { paths: st.unstaged.map((f) => f.path) }) }]));
   if (st.untracked.length) parts.push(group(t("Untracked"), "untracked", st.untracked, [{ icon: "plus", label: t("Stage all"), run: () => act("stage", { paths: topLevelUntracked(st.untracked) }) }]));
   return h("div.ws-groups", parts);
 }
@@ -604,6 +612,341 @@ function editsDiff(file) {
   return h("div", h("div.muted", { style: { padding: "4px 8px", fontSize: ".8em" } }, t("Edits made by Claude (git diff unavailable)")), blocks);
 }
 
+// ---- push / pull -----------------------------------------------------------------------
+function syncButtons(st) {
+  const spin = (name) => (S.busy === name ? h("span.spinner", { style: { width: "12px", height: "12px" } }) : null);
+  return [
+    st.upstream ? h("button.btn.small.ghost.ws-sync", { type: "button", disabled: Boolean(S.busy), title: t("Pull from {upstream}", { upstream: st.upstream }), onclick: pullFlow }, spin("pull") || icon("download", 13), t("Pull")) : null,
+    h("button.btn.small.ghost.ws-sync", { type: "button", disabled: Boolean(S.busy), title: st.upstream ? t("Push to {upstream}", { upstream: st.upstream }) : t("Publish this branch"), onclick: pushFlow }, spin("push") || icon("upload", 13), st.upstream ? t("Push") : t("Publish")),
+  ];
+}
+
+const commandPreview = (text) => h("div.ws-cmd-preview", h("span.muted", t("Runs:")), h("code", { dir: "ltr" }, text));
+
+async function runBusy(name, fn) {
+  S.busy = name;
+  draw();
+  try { return await fn(); } finally { S.busy = ""; draw(); }
+}
+
+async function pushFlow() {
+  const plan = await guarded(wsGet("/api/ws/git/push-plan"));
+  if (!plan) return;
+  if (!plan.branch) return toast(t("HEAD is detached: check out a branch before pushing."), "error");
+  if (!plan.remotes.length) return toast(t("This repository has no remote to push to."), "error");
+  let remote = plan.remote;
+  const cmd = () => (plan.upstream ? `git push ${plan.remote} HEAD:${plan.merge}` : `git push --set-upstream ${remote} HEAD:refs/heads/${plan.branch}`);
+  const preview = h("div", commandPreview(cmd()));
+  const remoteSelect = !plan.upstream && plan.remotes.length > 1
+    ? h("select.input", { dir: "ltr", onchange: (event) => { remote = event.target.value; preview.replaceChildren(commandPreview(cmd())); } }, plan.remotes.map((name) => h("option", { value: name, selected: name === remote }, name)))
+    : null;
+  const nothing = plan.upstream && !plan.ahead;
+  const body = h(
+    "div.ws-dialog",
+    h("p", { dir: "auto" }, plan.upstream
+      ? (nothing ? t("“{branch}” is up to date with “{upstream}”: there is nothing to push.", { branch: plan.branch, upstream: plan.upstream }) : t("Push {n} commit(s) from “{branch}” to “{upstream}”.", { n: plan.ahead, branch: plan.branch, upstream: plan.upstream }))
+      : t("Publish “{branch}” to the remote and make it the branch's upstream (first push). {n} commit(s) are not on any remote yet.", { branch: plan.branch, n: plan.ahead })),
+    remoteSelect ? h("label.field", h("span", t("Remote")), remoteSelect) : null,
+    plan.behind ? h("div.banner.warn", icon("alert", 14), h("span", t("The upstream has {n} commit(s) you don't have. Git refuses the push until you pull them.", { n: plan.behind }))) : null,
+    preview,
+    h("p.muted.small", t("Others with access to the remote will see these commits.")),
+  );
+  modal({
+    title: plan.upstream ? t("Push") : t("Publish branch"),
+    body,
+    width: 480,
+    actions: [
+      { label: t("Cancel"), onClick: (m) => m.close() },
+      { label: plan.upstream ? t("Push") : t("Publish"), variant: "primary", disabled: Boolean(nothing), onClick: async (m) => {
+        m.close();
+        const result = await runBusy("push", () => act("push", { remote }, { success: t("Pushed") }));
+        if (result) loadPr({ force: true });
+      } },
+    ],
+  });
+}
+
+async function pullFlow() {
+  const st = S.status;
+  if (!st?.upstream) return toast(t("This branch has no upstream yet: publish it first."), "error");
+  let mode = "ff-only";
+  const preview = h("div");
+  const drawPreview = () => preview.replaceChildren(commandPreview(mode === "rebase" ? "git pull --rebase" : "git pull --ff-only"));
+  drawPreview();
+  const choice = (value, label, hint) => {
+    const input = h("input", { type: "radio", name: "ws-pull-mode", value, checked: value === mode });
+    input.addEventListener("change", () => { mode = value; drawPreview(); });
+    return h("label.ws-radio", input, h("span", h("strong", label), h("small.muted", hint)));
+  };
+  const body = h(
+    "div.ws-dialog",
+    h("p", { dir: "auto" }, st.behind ? t("Bring {n} commit(s) from “{upstream}” into “{branch}”.", { n: st.behind, upstream: st.upstream, branch: st.branch }) : t("Fetch “{upstream}” and bring any new commits into “{branch}”.", { upstream: st.upstream, branch: st.branch })),
+    choice("ff-only", t("Fast-forward only"), t("Safe: stops if your branch and the upstream have diverged.")),
+    choice("rebase", t("Rebase my commits"), t("Replays your local commits on top of the upstream.")),
+    st.ahead ? h("div.banner.info", icon("info", 14), h("span", t("You have {n} local commit(s) that are not pushed: fast-forward fails if the upstream also moved.", { n: st.ahead }))) : null,
+    preview,
+  );
+  modal({
+    title: t("Pull"),
+    body,
+    width: 480,
+    actions: [
+      { label: t("Cancel"), onClick: (m) => m.close() },
+      { label: t("Pull"), variant: "primary", onClick: async (m) => { m.close(); await runBusy("pull", () => act("pull", { mode }, { success: t("Pulled") })); } },
+    ],
+  });
+}
+
+// ---- stash -----------------------------------------------------------------------------
+async function loadStashes() {
+  const cwd = cwdNow();
+  try {
+    const { stashes } = await wsGet("/api/ws/git/stashes");
+    if (cwd !== cwdNow()) return;
+    const changed = JSON.stringify(stashes) !== JSON.stringify(S.stashes?.list);
+    S.stashes = { for: cwd, list: stashes };
+    if (changed && S.view === "changes") draw();
+  } catch { /* not a repo */ }
+}
+
+async function stashChanges() {
+  const message = h("input.input", { type: "text", dir: "auto", placeholder: t("Optional description"), autofocus: true });
+  const untracked = h("input", { type: "checkbox" });
+  const body = h(
+    "div.ws-dialog",
+    h("p", t("Put your uncommitted changes aside and restore a clean working tree. You can bring them back later with Pop.")),
+    h("label.field", h("span", t("Description")), message),
+    h("label.switch", untracked, h("span", t("Include untracked files"))),
+  );
+  modal({
+    title: t("Stash changes"),
+    body,
+    width: 460,
+    actions: [
+      { label: t("Cancel"), onClick: (m) => m.close() },
+      { label: t("Stash"), variant: "primary", onClick: async (m) => {
+        m.close();
+        await runBusy("stash", () => act("stashPush", { message: message.value, includeUntracked: untracked.checked }, { success: t("Changes stashed") }));
+        loadStashes();
+      } },
+    ],
+  });
+}
+
+function stashGroup() {
+  const list = S.stashes?.for === cwdNow() ? S.stashes.list : [];
+  if (!list.length) return null;
+  const rows = list.map((item) =>
+    h(
+      "div.ws-row.stash",
+      icon("archive", 14),
+      h("div.ws-branch-info", h("span.ws-name", { dir: "auto" }, item.subject || item.ref), h("span.muted", { dir: "ltr" }, `${item.ref} · ${formatTime(Date.parse(item.date))}`)),
+      h(
+        "span.ws-actions.always",
+        ibtn("undo", t("Pop (apply and remove)"), () => stashAction("stashPop", item, t("Stash applied")), { size: 14 }),
+        ibtn("copy", t("Apply (keep the stash)"), () => stashAction("stashApply", item, t("Stash applied")), { size: 14 }),
+        ibtn("trash", t("Drop"), async () => {
+          if (await confirmDialog({ title: t("Drop stash?"), message: t("“{name}” will be deleted. This cannot be undone.", { name: item.subject || item.ref }), confirmLabel: t("Drop"), danger: true })) stashAction("stashDrop", item, t("Stash dropped"));
+        }, { size: 14 }),
+      ),
+    ),
+  );
+  return h("section.ws-group", h("div.ws-group-head", h("span.ws-group-title", t("Stashes")), h("span.badge", String(list.length))), h("div.ws-rows", rows));
+}
+
+async function stashAction(action, item, success) {
+  await act(action, { index: item.index }, { success });
+  loadStashes();
+}
+
+// ---- pull request (GitHub CLI) -----------------------------------------------------------
+async function loadPr({ force = false } = {}) {
+  const st = S.status;
+  if (!st?.isRepo || st.detached || !st.branch) { S.pr = null; return; }
+  const key = `${cwdNow()}|${st.branch}`;
+  if (!force && S.pr?.for === key) return;
+  S.pr = { for: key, loading: true, ...(S.pr?.for === key ? { prev: S.pr } : {}) };
+  if (S.view === "changes") draw();
+  try {
+    const result = await wsGet("/api/ws/gh/pr");
+    if (S.pr?.for !== key) return;
+    S.pr = { ...result, for: key };
+  } catch (error) {
+    if (S.pr?.for !== key) return;
+    S.pr = { for: key, available: true, error: errorMessage(error) };
+  }
+  if (S.view === "changes") draw();
+}
+
+const PR_STATE = { OPEN: ["ok", () => t("Open")], MERGED: ["accent", () => t("Merged")], CLOSED: ["danger", () => t("Closed")] };
+
+function prCard() {
+  const pr = S.pr?.loading ? S.pr.prev : S.pr;
+  if (!S.pr || (!pr && !S.pr.loading) || pr?.available === false || pr?.notGithub) return null;
+  const st = S.status;
+  const refreshBtn = ibtn("refresh", t("Refresh"), () => loadPr({ force: true }), { size: 14 });
+  const head = (...content) => h("div.ws-pr-head", icon("git-branch", 14), ...content, h("span", { style: { flex: 1 } }), S.pr.loading ? h("span.spinner", { style: { width: "12px", height: "12px" } }) : refreshBtn);
+  if (!pr) return h("div.ws-pr", head(h("span.muted", t("Looking for a pull request…"))));
+  if (pr.error) {
+    return h("div.ws-pr", head(h("strong", t("Pull request"))), h("div.ws-pr-note", { dir: "auto" }, pr.auth === false ? t("The GitHub CLI is not signed in. Run “gh auth login” in a terminal.") : pr.error));
+  }
+  if (!pr.pr) {
+    return h(
+      "div.ws-pr.compact",
+      head(
+        h("span.muted", t("No pull request for this branch.")),
+        st?.upstream
+          ? h("button.btn.small.ghost", { type: "button", onclick: createPrDialog }, icon("plus", 12), t("Create pull request…"))
+          : h("button.btn.small.ghost", { type: "button", onclick: pushFlow, title: t("A pull request needs the branch on the remote") }, icon("upload", 12), t("Publish branch")),
+      ),
+    );
+  }
+  const p = pr.pr;
+  const [tone, label] = p.isDraft && p.state === "OPEN" ? ["", () => t("Draft")] : PR_STATE[p.state] || ["", () => p.state];
+  const checks = p.checks || { total: 0 };
+  const checkBits = [
+    checks.pass ? h("span.ws-check.pass", icon("check-circle", 12), t("{n} passed", { n: checks.pass })) : null,
+    checks.fail ? h("span.ws-check.fail", icon("x-circle", 12), t("{n} failed", { n: checks.fail })) : null,
+    checks.pending ? h("span.ws-check.pending", icon("clock", 12), t("{n} pending", { n: checks.pending })) : null,
+  ].filter(Boolean);
+  const details = checks.total
+    ? h("details.ws-pr-checks", h("summary", checkBits), h("div.ws-pr-checklist", checks.checks.map((check) => h(`div.ws-check.${check.state}`, icon(check.state === "pass" ? "check-circle" : check.state === "fail" ? "x-circle" : "clock", 12), check.url ? h("a", { href: check.url, target: "_blank", rel: "noopener noreferrer", dir: "auto" }, check.name) : h("span", { dir: "auto" }, check.name)))))
+    : h("div.muted.ws-pr-note", t("No checks reported."));
+  return h(
+    "div.ws-pr",
+    head(h(`span.badge${tone ? `.${tone}` : ""}`, label()), h("a.ws-pr-title", { href: p.url, target: "_blank", rel: "noopener noreferrer", dir: "auto", title: t("Open in browser") }, h("span.muted", { dir: "ltr" }, `#${p.number} `), p.title)),
+    h(
+      "div.ws-pr-meta",
+      h("span", { dir: "ltr" }, `${p.headRefName} → ${p.baseRefName}`),
+      p.mergeable === "CONFLICTING" ? h("span.badge.danger", t("Has conflicts")) : p.mergeable === "MERGEABLE" && p.state === "OPEN" ? h("span.badge.ok", t("Mergeable")) : null,
+      p.reviewDecision === "APPROVED" ? h("span.badge.ok", t("Approved")) : p.reviewDecision === "CHANGES_REQUESTED" ? h("span.badge.warn", t("Changes requested")) : null,
+      h("span", { style: { flex: 1 } }),
+      h("a.btn.small.ghost", { href: p.url, target: "_blank", rel: "noopener noreferrer" }, icon("external", 12), t("Open in browser")),
+    ),
+    details,
+  );
+}
+
+function createPrDialog() {
+  const st = S.status;
+  const title = h("input.input", { type: "text", dir: "auto", placeholder: t("Leave empty to use the commit messages"), autofocus: true, maxlength: 300 });
+  const text = h("textarea.input", { rows: 6, dir: "auto", placeholder: t("Description (optional)") });
+  const base = h("input.input", { type: "text", dir: "ltr", placeholder: t("default branch") });
+  const draft = h("input", { type: "checkbox" });
+  const preview = h("div");
+  const drawPreview = () => preview.replaceChildren(commandPreview(`gh pr create ${title.value.trim() ? "--title … --body …" : "--fill"}${draft.checked ? " --draft" : ""}${base.value.trim() ? ` --base ${base.value.trim()}` : ""}`));
+  [title, base].forEach((el) => el.addEventListener("input", drawPreview));
+  draft.addEventListener("change", drawPreview);
+  drawPreview();
+  modal({
+    title: t("Create pull request"),
+    width: 520,
+    body: h(
+      "div.ws-dialog",
+      h("p", { dir: "auto" }, t("Opens a pull request on GitHub for “{branch}” ({upstream}). It is visible to everyone with access to the repository.", { branch: st.branch, upstream: st.upstream })),
+      st.ahead ? h("div.banner.warn", icon("alert", 14), h("span", t("{n} local commit(s) are not pushed yet and will not be part of the pull request.", { n: st.ahead }))) : null,
+      h("label.field", h("span", t("Title")), title),
+      h("label.field", h("span", t("Description")), text),
+      h("label.field", h("span", t("Base branch")), base),
+      h("label.switch", draft, h("span", t("Create as draft"))),
+      preview,
+    ),
+    actions: [
+      { label: t("Cancel"), onClick: (m) => m.close() },
+      { label: t("Create pull request"), variant: "primary", onClick: async (m) => {
+        m.close();
+        const result = await guarded(wsPost("/api/ws/gh/pr/create", { title: title.value.trim(), body: text.value, base: base.value.trim() || undefined, draft: draft.checked }));
+        if (result) toast(result.url ? t("Pull request created: {url}", { url: result.url }) : t("Pull request created"), "ok", 5000);
+        loadPr({ force: true });
+      } },
+    ],
+  });
+}
+
+// ---- worktrees -------------------------------------------------------------------------
+async function loadWorktrees() {
+  try {
+    S.worktrees = await wsGet("/api/ws/git/worktrees");
+  } catch (error) {
+    S.worktrees = { error: errorMessage(error) };
+  }
+  if (S.view === "worktrees") draw();
+}
+
+function worktreesView() {
+  if (!S.worktrees) return loadingBox();
+  if (S.worktrees.error) return errorBox(S.worktrees.error, loadWorktrees);
+  const rootPath = S.worktrees.root.replace(/\\/g, "/");
+  const shown = (path) => {
+    const p = path.replace(/\\/g, "/");
+    return p.toLowerCase().startsWith(`${rootPath.toLowerCase()}/`) ? `./${p.slice(rootPath.length + 1)}` : p;
+  };
+  const rows = S.worktrees.worktrees.map((wt) =>
+    h(
+      "div.ws-row.branch.ws-wt",
+      icon(wt.main ? "folder" : "split", 14),
+      h(
+        "div.ws-branch-info",
+        h(
+          "span.ws-name",
+          h("span", { dir: "ltr", title: wt.path }, shown(wt.path)),
+          wt.main ? h("span.badge", t("main")) : null,
+          wt.current ? h("span.badge.accent", t("current")) : null,
+          wt.claude ? h("span.badge", "Claude Code") : null,
+          wt.locked ? h("span.badge.warn", { title: wt.lockReason || "" }, t("locked")) : null,
+          wt.missing ? h("span.badge.danger", t("missing")) : null,
+        ),
+        h(
+          "span.muted",
+          h("span", { dir: "ltr" }, wt.branch || (wt.bare ? "bare" : `${t("detached")} ${wt.head.slice(0, 7)}`)),
+          wt.changes === null || wt.changes === undefined ? "" : ` · ${wt.changes ? t("{n} uncommitted change(s)", { n: wt.changes }) : t("clean")}`,
+          wt.size !== undefined ? ` · ${wt.sizePartial ? "≥ " : ""}${formatBytes(wt.size)}` : "",
+        ),
+      ),
+      h(
+        "span.ws-actions.always",
+        ibtn("copy", t("Copy path"), () => copyText(wt.path), { size: 14 }),
+        !wt.main && !wt.current && !wt.locked ? ibtn("trash", t("Remove worktree"), () => removeWorktree(wt), { size: 14 }) : null,
+      ),
+    ),
+  );
+  return h(
+    "div.ws-groups",
+    h(
+      "section.ws-group",
+      h("div.ws-group-head", h("span.ws-group-title", t("Worktrees")), h("span.badge", String(rows.length)), h("span", { style: { flex: 1 } }), ibtn("refresh", t("Refresh"), () => { S.worktrees = null; draw(); loadWorktrees(); }, { size: 14 })),
+      h("div.ws-rows", rows),
+    ),
+    h("p.muted.ws-note", t("Each worktree is a separate checkout of this repository. Claude Code keeps the ones it creates (claude --worktree) in .claude/worktrees/.")),
+  );
+}
+
+async function removeWorktree(wt) {
+  const name = wt.branch || wt.path;
+  const ok = await confirmDialog({
+    title: t("Remove worktree?"),
+    message: t("The folder “{path}” is deleted. The branch “{name}” and its commits are kept.", { path: wt.path, name }),
+    confirmLabel: t("Remove"),
+    danger: true,
+  });
+  if (!ok) return;
+  let force = false;
+  if (wt.dirty) {
+    force = await confirmDialog({
+      title: t("The worktree has uncommitted changes"),
+      message: t("{n} uncommitted change(s) in “{path}” will be lost for good. Remove it anyway?", { n: wt.changes, path: wt.path }),
+      confirmLabel: t("Remove and lose changes"),
+      danger: true,
+    });
+    if (!force) return;
+  }
+  const result = await guarded(wsPost("/api/ws/git/worktree/remove", { path: wt.path, force }));
+  if (result) toast(t("Worktree removed"), "ok", 2000);
+  S.worktrees = null;
+  draw();
+  loadWorktrees();
+}
+
 // ---- tab registration ------------------------------------------------------------------
 function render(container) {
   root = container;
@@ -614,8 +957,9 @@ function render(container) {
   els = { head, tabs, body, commit: commitHost };
   commitHost.append(buildCommitBox());
   container.append(h("div.ws-panel", head, tabs, body, commitHost));
-  if (S.statusFor !== cwdNow()) { S.status = null; S.open.clear(); S.diffs.clear(); S.branches = null; S.log = null; }
+  if (S.statusFor !== cwdNow()) { S.status = null; S.open.clear(); S.diffs.clear(); S.branches = null; S.log = null; S.pr = null; S.stashes = null; S.worktrees = null; }
   draw();
+  if (S.view === "worktrees" && !S.worktrees) loadWorktrees();
   refresh({ quiet: Boolean(S.status) });
   return () => { root = null; els = null; };
 }
@@ -633,7 +977,7 @@ bus.on("conv:update", (id) => {
   for (const tool of conv.tools.values()) if (tool.status === "done" && ["Edit", "MultiEdit", "Write", "NotebookEdit", "Bash", "PowerShell"].includes(tool.name)) sig += tool.id;
   if (sig !== toolSig) { toolSig = sig; refreshSoon(); if (S.view === "session") draw(); }
 });
-bus.on("current", () => { S.status = null; S.statusFor = null; S.open.clear(); S.diffs.clear(); S.branches = null; S.log = null; refreshSoon(); });
+bus.on("current", () => { S.status = null; S.statusFor = null; S.open.clear(); S.diffs.clear(); S.branches = null; S.log = null; S.pr = null; S.stashes = null; S.worktrees = null; refreshSoon(); });
 window.addEventListener("focus", refreshSoon);
 
 registerCommand({ id: "ws-changes", title: "Open changes", icon: "git-branch", keywords: ["git", "diff", "status"], run: (ctx) => ctx.openInspector("changes") });

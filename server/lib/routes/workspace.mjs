@@ -37,17 +37,26 @@ export default function register({ route, HttpError, fsgit }) {
     let real;
     try {
       real = await realpath(full);
-    } catch (error) {
+    } catch {
       if (mustExist) throw new HttpError(404, "not found");
-      real = join(await realpath(dirname(full)), basename(full));
+      // New file, possibly in new folders: resolve the nearest existing ancestor, re-append the rest.
+      let base = dirname(full);
+      const rest = [basename(full)];
+      for (;;) {
+        try { real = join(await realpath(base), ...rest); break; } catch { /* missing: go up */ }
+        const parent = dirname(base);
+        if (parent === base) throw new HttpError(404, "not found");
+        rest.unshift(basename(base));
+        base = parent;
+      }
     }
     if (!within(root, real)) throw new HttpError(403, "path escapes the project folder");
     return { root, full: real };
   }
 
-  function run(cmd, args, { cwd, input, timeout = 60_000, okCodes = [0] } = {}) {
+  function run(cmd, args, { cwd, input, timeout = 60_000, okCodes = [0], env = {} } = {}) {
     return new Promise((resolvePromise, reject) => {
-      const child = execFile(cmd, args, { cwd, maxBuffer: 64 * 1024 * 1024, timeout, windowsHide: true, encoding: "utf8", env: { ...process.env, GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0", LC_ALL: "C.UTF-8" } }, (error, stdout, stderr) => {
+      const child = execFile(cmd, args, { cwd, maxBuffer: 64 * 1024 * 1024, timeout, windowsHide: true, encoding: "utf8", env: { ...process.env, GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0", LC_ALL: "C.UTF-8", ...env } }, (error, stdout, stderr) => {
         if (error && !okCodes.includes(error.code)) {
           const err = new HttpError(400, (stderr || error.message || "").trim().split("\n").slice(0, 6).join("\n") || "command failed");
           err.stderr = stderr;
@@ -92,11 +101,208 @@ export default function register({ route, HttpError, fsgit }) {
     return out;
   }
 
+  // Same rules as fs-git (git check-ref-format, plus no "-x" options and no "." / ".." pathspecs).
   const branchName = (name) => {
-    const value = String(name ?? "").trim();
-    if (!value || value.startsWith("-") || /[\s~^:?*[\\]|\.\.|@\{|\/\/|\.lock$|\/$/.test(value)) throw bad("invalid branch name");
-    return value;
+    try { return fsgit.checkRefName(name); } catch { throw bad("invalid branch name"); }
   };
+
+  const stashRef = (index) => {
+    const n = Number(index ?? 0);
+    if (!Number.isInteger(n) || n < 0 || n > 9999) throw bad("invalid stash index");
+    return `stash@{${n}}`;
+  };
+
+  const gitOut = async (root, args) => (await git(root, args).catch(() => ({ stdout: "" }))).stdout.trim();
+
+  /** What a push would do now: the branch, the remote, the upstream (or none: first push publishes it), counts. */
+  async function pushPlan(root, requestedRemote) {
+    const branch = await gitOut(root, ["symbolic-ref", "--short", "-q", "HEAD"]);
+    const remotes = (await gitOut(root, ["remote"])).split(/\r?\n/).filter(Boolean);
+    let remote = "";
+    let merge = "";
+    let upstream = "";
+    if (branch) {
+      remote = await gitOut(root, ["config", "--get", `branch.${branch}.remote`]);
+      merge = await gitOut(root, ["config", "--get", `branch.${branch}.merge`]);
+      upstream = remote && merge && remotes.includes(remote) ? await gitOut(root, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]) : "";
+      if (!upstream) { remote = ""; merge = ""; }
+    }
+    if (!remote) {
+      const wanted = requestedRemote ? String(requestedRemote) : "";
+      if (wanted && !remotes.includes(wanted)) throw bad(`unknown remote: ${wanted}`);
+      remote = wanted || (remotes.includes("origin") ? "origin" : remotes[0] || "");
+    }
+    let ahead = 0;
+    let behind = 0;
+    if (upstream) {
+      const [b, a] = (await gitOut(root, ["rev-list", "--left-right", "--count", "@{upstream}...HEAD"])).split(/\s+/).map(Number);
+      ahead = a || 0;
+      behind = b || 0;
+    } else if (branch) {
+      ahead = Number(await gitOut(root, ["rev-list", "--count", "HEAD", "--not", "--remotes"])) || 0;
+    }
+    if (remote.startsWith("-")) throw bad(`invalid remote: ${remote}`);
+    return { branch, remote, remotes, upstream, merge, ahead, behind };
+  }
+
+  // ---- git: worktrees (incl. Claude Code's <repo>/.claude/worktrees/) ------------------
+  const samePath = (a, b) => (IS_WIN ? a.toLowerCase() === b.toLowerCase() : a === b);
+
+  async function listWorktrees(root) {
+    const { stdout } = await git(root, ["worktree", "list", "--porcelain", "-z"]);
+    const items = [];
+    let current = null;
+    for (const field of stdout.split("\0")) {
+      if (!field) { current = null; continue; }
+      const space = field.indexOf(" ");
+      const key = space < 0 ? field : field.slice(0, space);
+      const value = space < 0 ? "" : field.slice(space + 1);
+      if (key === "worktree") { current = { path: resolve(value), head: "", branch: "", detached: false, bare: false, locked: false, prunable: false }; items.push(current); continue; }
+      if (!current) continue;
+      if (key === "HEAD") current.head = value;
+      else if (key === "branch") current.branch = value.replace(/^refs\/heads\//, "");
+      else if (key === "detached") current.detached = true;
+      else if (key === "bare") current.bare = true;
+      else if (key === "locked") { current.locked = true; current.lockReason = value; }
+      else if (key === "prunable") { current.prunable = true; current.prunableReason = value; }
+    }
+    return items;
+  }
+
+  /** Total size of a folder (files only, symlinks not followed), with an entry/time budget. */
+  async function folderSize(dir, { maxEntries = 150_000, maxMs = 4000 } = {}) {
+    const started = Date.now();
+    let bytes = 0;
+    let entries = 0;
+    let partial = false;
+    const stack = [dir];
+    while (stack.length) {
+      if (entries > maxEntries || Date.now() - started > maxMs) { partial = true; break; }
+      const current = stack.pop();
+      let list;
+      try { list = await readdir(current, { withFileTypes: true }); } catch { continue; }
+      for (const entry of list) {
+        entries += 1;
+        const full = join(current, entry.name);
+        if (entry.isDirectory()) stack.push(full);
+        else if (entry.isFile()) { try { bytes += (await stat(full)).size; } catch { /* vanished */ } }
+      }
+    }
+    return { bytes, partial };
+  }
+
+  route("GET", "/api/ws/git/worktrees", async ({ query }) => {
+    const here = await needRepo(query.get("cwd"));
+    const items = await listWorktrees(here);
+    const main = items[0]?.path || here;
+    const claudeDir = join(main, ".claude", "worktrees");
+    const detailed = await Promise.all(items.map(async (item, index) => {
+      const out = { ...item, main: index === 0, current: samePath(item.path, here), claude: within(claudeDir, item.path) && !samePath(item.path, claudeDir) };
+      const exists = await stat(item.path).then((info) => info.isDirectory(), () => false);
+      out.missing = !exists;
+      if (!exists || item.bare) return out;
+      const [status, size] = await Promise.all([
+        git(item.path, ["status", "--porcelain=v1", "-z", "--untracked-files=normal"]).then((r) => r.stdout.split("\0").filter((x) => x && /^[ MADRCU?!]{2} /.test(x)).length, () => null),
+        index === 0 ? Promise.resolve(null) : folderSize(item.path),
+      ]);
+      out.changes = status;
+      out.dirty = Boolean(status);
+      if (size) { out.size = size.bytes; out.sizePartial = size.partial; }
+      return out;
+    }));
+    return { root: main, worktrees: detailed };
+  });
+
+  route("POST", "/api/ws/git/worktree/remove", async ({ body }) => {
+    const here = await needRepo(body.cwd);
+    const items = await listWorktrees(here);
+    const target = items.find((item) => samePath(item.path, resolve(String(body.path || ""))));
+    if (!target) throw bad("not a worktree of this repository");
+    if (target === items[0]) throw bad("the main worktree cannot be removed");
+    if (samePath(target.path, here)) throw bad("this session works in that worktree; open another folder first");
+    if (target.locked) throw bad(`the worktree is locked${target.lockReason ? `: ${target.lockReason}` : ""}`);
+    const args = ["worktree", "remove"];
+    if (body.force) args.push("--force");
+    const { stdout, stderr } = await git(items[0].path, [...args, target.path], { timeout: 120_000 });
+    return { ok: true, output: (stdout + stderr).trim() };
+  });
+
+  // ---- GitHub CLI (pull requests) ----------------------------------------------------
+  const GH_ENV = { GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1", GH_SPINNER_DISABLED: "1", NO_COLOR: "1", CLICOLOR: "0" };
+  const gh = (root, args, opts = {}) => run("gh", args, { cwd: root, env: GH_ENV, ...opts });
+  let ghPresent = null; // null = unknown, then true/false (re-checked after a minute when missing)
+  let ghCheckedAt = 0;
+  async function ghAvailable() {
+    if (ghPresent === true || (ghPresent === false && Date.now() - ghCheckedAt < 60_000)) return ghPresent;
+    ghCheckedAt = Date.now();
+    ghPresent = await run("gh", ["--version"], { timeout: 15_000 }).then(() => true, () => false);
+    return ghPresent;
+  }
+
+  const CHECK_PASS = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]);
+  const CHECK_FAIL = new Set(["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE"]);
+  /** Fold gh's statusCheckRollup (CheckRun | StatusContext items) into pass / fail / pending. */
+  function summarizeChecks(rollup = []) {
+    const checks = (Array.isArray(rollup) ? rollup : []).map((item) => {
+      const raw = String(item.conclusion || item.state || item.status || "").toUpperCase();
+      const state = CHECK_PASS.has(raw) ? "pass" : CHECK_FAIL.has(raw) ? "fail" : "pending";
+      return { name: item.name || item.context || item.workflowName || "check", state, url: item.detailsUrl || item.targetUrl || "" };
+    });
+    const count = (state) => checks.filter((check) => check.state === state).length;
+    return { total: checks.length, pass: count("pass"), fail: count("fail"), pending: count("pending"), checks: checks.slice(0, 60) };
+  }
+
+  route("GET", "/api/ws/gh/pr", async ({ query }) => {
+    const root = await needRepo(query.get("cwd"));
+    if (!(await ghAvailable())) return { available: false };
+    const branch = await gitOut(root, ["symbolic-ref", "--short", "-q", "HEAD"]);
+    if (!branch) return { available: true, branch: "", pr: null };
+    try {
+      const { stdout } = await gh(root, ["pr", "view", "--json", "number,title,state,url,statusCheckRollup,mergeable,isDraft,headRefName,baseRefName,reviewDecision"], { timeout: 45_000 });
+      const pr = JSON.parse(stdout);
+      const { statusCheckRollup, ...rest } = pr;
+      return { available: true, branch, pr: { ...rest, checks: summarizeChecks(statusCheckRollup) } };
+    } catch (error) {
+      const text = String(error.stderr || error.message || "");
+      if (/no (open )?pull requests? found/i.test(text)) return { available: true, branch, pr: null };
+      // (this message also mentions `gh auth login`, so it is matched before the sign-in case)
+      if (/none of the git remotes|not a github|no git remotes/i.test(text)) return { available: true, branch, pr: null, notGithub: true };
+      if (/gh auth login|not logged in|authentication/i.test(text)) return { available: true, branch, pr: null, auth: false, error: text.trim().split("\n")[0] };
+      return { available: true, branch, pr: null, error: text.trim().split("\n").slice(0, 3).join("\n") || "gh failed" };
+    }
+  });
+
+  route("POST", "/api/ws/gh/pr/create", async ({ body }) => {
+    const root = await needRepo(body.cwd);
+    if (!(await ghAvailable())) throw bad("the GitHub CLI (gh) is not installed");
+    const plan = await pushPlan(root);
+    if (!plan.branch) throw bad("HEAD is detached: check out a branch first");
+    if (!plan.upstream) throw bad("push the branch first: it has no upstream yet");
+    const title = String(body.title ?? "").trim();
+    const text = String(body.body ?? "");
+    if (title.length > 300 || text.length > 60_000) throw bad("title or description is too long");
+    // Options use the --flag=value form, so a title or body that starts with "-" stays a value.
+    const args = ["pr", "create", `--head=${plan.merge.replace(/^refs\/heads\//, "") || plan.branch}`];
+    if (!title) args.push("--fill");
+    else args.push(`--title=${title}`, `--body=${text}`);
+    if (body.draft) args.push("--draft");
+    if (body.base) args.push(`--base=${branchName(body.base)}`);
+    const { stdout, stderr } = await gh(root, args, { timeout: 120_000 });
+    const url = /https?:\/\/\S+/.exec(stdout)?.[0] || "";
+    return { ok: true, url, output: (stdout + stderr).trim() };
+  });
+
+  route("GET", "/api/ws/git/push-plan", async ({ query }) => pushPlan(await needRepo(query.get("cwd")), query.get("remote") || ""));
+
+  route("GET", "/api/ws/git/stashes", async ({ query }) => {
+    const root = await needRepo(query.get("cwd"));
+    const out = await gitOut(root, ["stash", "list", "--format=%gd%x1f%s%x1f%cI%x1e"]);
+    const stashes = out.split("\x1e").map((chunk) => chunk.trim()).filter(Boolean).map((chunk) => {
+      const [ref, subject, date] = chunk.split("\x1f");
+      return { index: Number(/\{(\d+)\}/.exec(ref)?.[1] ?? -1), ref, subject, date };
+    }).filter((item) => item.index >= 0);
+    return { stashes };
+  });
 
   // ---- git: status ---------------------------------------------------------------
   route("GET", "/api/ws/git/status", async ({ query }) => {
@@ -237,7 +443,7 @@ export default function register({ route, HttpError, fsgit }) {
       }
       case "checkout": {
         const name = branchName(body.branch);
-        const { stdout, stderr } = await git(root, ["checkout", name]);
+        const { stdout, stderr } = await git(root, ["checkout", name, "--"]);
         return { ok: true, output: (stdout + stderr).trim() };
       }
       case "checkoutRemote": {
@@ -250,7 +456,7 @@ export default function register({ route, HttpError, fsgit }) {
         const name = branchName(body.branch);
         const args = ["checkout", "-b", name];
         if (body.from) args.push(branchName(body.from));
-        await git(root, args);
+        await git(root, [...args, "--"]);
         return { ok: true };
       }
       case "deleteBranch":
@@ -261,6 +467,38 @@ export default function register({ route, HttpError, fsgit }) {
         return { ok: true };
       case "fetch": {
         const { stdout, stderr } = await git(root, ["fetch", "--prune"], { timeout: 120_000 });
+        return { ok: true, output: (stdout + stderr).trim() };
+      }
+      case "push": {
+        const plan = await pushPlan(root, body.remote);
+        if (!plan.branch) throw bad("HEAD is detached: check out a branch before pushing");
+        if (!plan.remote) throw bad("this repository has no remote to push to");
+        // First push of a branch: publish it and set its upstream; later pushes go to the upstream.
+        const args = plan.upstream
+          ? ["push", "--porcelain", plan.remote, `HEAD:${plan.merge}`]
+          : ["push", "--porcelain", "--set-upstream", plan.remote, `HEAD:refs/heads/${plan.branch}`];
+        const { stdout, stderr } = await git(root, args, { timeout: 180_000 });
+        return { ok: true, output: (stdout + stderr).trim(), ...plan };
+      }
+      case "pull": {
+        const mode = body.mode === "rebase" ? "rebase" : "ff-only";
+        const { stdout, stderr } = await git(root, ["pull", mode === "rebase" ? "--rebase" : "--ff-only", "--no-edit"], { timeout: 180_000 });
+        return { ok: true, mode, output: (stdout + stderr).trim() };
+      }
+      case "stashPush": {
+        const args = ["stash", "push"];
+        if (body.includeUntracked) args.push("--include-untracked");
+        const message = String(body.message ?? "").trim();
+        if (message) args.push(`--message=${message.slice(0, 500)}`);
+        const { stdout, stderr } = await git(root, args);
+        return { ok: true, output: (stdout + stderr).trim() };
+      }
+      case "stashPop":
+      case "stashApply":
+      case "stashDrop": {
+        const ref = stashRef(body.index);
+        const verb = body.action === "stashPop" ? "pop" : body.action === "stashApply" ? "apply" : "drop";
+        const { stdout, stderr } = await git(root, ["stash", verb, ref]);
         return { ok: true, output: (stdout + stderr).trim() };
       }
       default:
@@ -329,7 +567,8 @@ export default function register({ route, HttpError, fsgit }) {
     let real;
     try { real = await realpath(target); } catch { throw new HttpError(404, "not found"); }
     const inside = within(root, real);
-    const info = await fsgit.readTextFile(real, { max: Number(query.get("max")) || 1_000_000 });
+    const max = Math.min(Math.max(Number(query.get("max")) || 1_000_000, 1), 4_000_000);
+    const info = await fsgit.readTextFile(real, { max });
     return { ...info, path: real, inside, rel: inside ? relative(root, real).split(sep).join("/") : null };
   });
 
@@ -530,7 +769,8 @@ export default function register({ route, HttpError, fsgit }) {
   route("GET", "/api/term/([^/]+)/stream", async ({ req, res, params, query }) => {
     const term = getTerm(params[0]);
     res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive", "X-Accel-Buffering": "no" });
-    const after = Number(query.get("after") || req.headers["last-event-id"] || 0);
+    // An EventSource reconnect keeps the original ?after= but sends Last-Event-ID: resume from the later one.
+    const after = Math.max(Number(query.get("after")) || 0, Number(req.headers["last-event-id"]) || 0);
     res.write(`event: hello\ndata: ${JSON.stringify({ running: term.running, cwd: term.cwd, seq: term.seq })}\n\n`);
     for (const entry of term.chunks) if (entry.seq > after) writeSse(res, entry);
     term.clients.add(res);

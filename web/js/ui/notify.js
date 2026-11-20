@@ -32,6 +32,8 @@ export function initNotifications() {
   });
 
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) bus.emit("current"); // redraws the title without the badge
+    if (document.hidden) return;
+    if (document.title.startsWith("● ")) document.title = document.title.slice(2); // the badge is only for a hidden tab
+    bus.emit("visible"); // not "current": that is a conversation switch and rebuilds panels
   });
 }

@@ -1,7 +1,7 @@
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +11,14 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 let child;
 let base;
 let home;
+let configFile;
+
+/** Never the user's own config, data or Claude Code folders: everything lives in a temp folder. */
+function serverEnv() {
+  const env = { ...process.env, HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: join(home, "claude") };
+  for (const key of ["WHEELHOUSE_CONFIG", "WHEELHOUSE_DATA_DIR", "WHEELHOUSE_PORT", "WHEELHOUSE_CWD", "WHEELHOUSE_WORKSPACE_ROOT", "CLAUDE_BIN"]) delete env[key];
+  return env;
+}
 
 const freePort = () => new Promise((resolve) => {
   const server = createServer();
@@ -24,13 +32,18 @@ before(async () => {
   const port = await freePort();
   base = `http://127.0.0.1:${port}`;
   home = mkdtempSync(join(tmpdir(), "wheelhouse-srv-"));
-  child = spawn(process.execPath, [join(root, "server", "index.mjs"), "--port", String(port), "--data-dir", join(home, "data"), "--cwd", home], {
-    env: { ...process.env, HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: join(home, "claude") },
+  configFile = join(home, "wheelhouse.config.json");
+  writeFileSync(configFile, JSON.stringify({ autoTitle: false, profiles: { default: { label: "Test", configDir: join(home, "claude") } } }));
+  child = spawn(process.execPath, [join(root, "server", "index.mjs"), "--port", String(port), "--config", configFile, "--data-dir", join(home, "data"), "--cwd", home], {
+    env: serverEnv(),
     stdio: "ignore",
   });
   for (let i = 0; i < 80; i += 1) {
     try {
-      if ((await fetch(`${base}/api/health`)).ok) return;
+      if ((await fetch(`${base}/api/health`)).ok) {
+        await api("/api/prefs", { method: "PUT", body: JSON.stringify({ autoUpdateClaude: false }) });
+        return;
+      }
     } catch { /* not up yet */ }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
@@ -134,8 +147,8 @@ test("shutdown is refused for foreign or missing origins and stops the server fo
 
   const port = await freePort();
   const own = `http://127.0.0.1:${port}`;
-  const second = spawn(process.execPath, [join(root, "server", "index.mjs"), "--port", String(port), "--data-dir", join(home, "data-2"), "--cwd", home], {
-    env: { ...process.env, HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: join(home, "claude") },
+  const second = spawn(process.execPath, [join(root, "server", "index.mjs"), "--port", String(port), "--config", configFile, "--data-dir", join(home, "data-2"), "--cwd", home], {
+    env: serverEnv(),
     stdio: "ignore",
   });
   const exited = new Promise((resolve) => second.on("exit", resolve));
@@ -183,4 +196,42 @@ test("sign-in routes: unknown profile, unknown flow and foreign origins are refu
   assert.equal((await api("/api/auth/login/not-a-flow/code", { method: "POST", body: JSON.stringify({ code: "x" }) })).status, 404);
   const foreign = await fetch(`${base}/api/auth/login`, { method: "POST", headers: { origin: "https://evil.example", "content-type": "application/json" }, body: "{}" });
   assert.equal(foreign.status, 403);
+});
+
+test("Origin-less requests from other sites are refused; tools without browser headers and page navigation still work", async () => {
+  const crossSite = await fetch(`${base}/api/catalog?force=1`, { headers: { "sec-fetch-site": "cross-site" } });
+  assert.equal(crossSite.status, 403);
+  const sameSite = await fetch(`${base}/api/fs/search?q=x`, { headers: { "sec-fetch-site": "same-site" } });
+  assert.equal(sameSite.status, 403);
+  const foreignReferer = await fetch(`${base}/api/git/info`, { headers: { referer: "https://evil.example/page" } });
+  assert.equal(foreignReferer.status, 403);
+  const tray = await fetch(`${base}/api/status`); // the tray: no Origin, no Sec-Fetch-* headers
+  assert.equal(tray.status, 200);
+  const page = await fetch(`${base}/api/status`, { headers: { "sec-fetch-site": "same-origin" } });
+  assert.equal(page.status, 200);
+  const shell = await fetch(`${base}/`, { headers: { "sec-fetch-site": "cross-site" } });
+  assert.equal(shell.status, 200);
+});
+
+test("the legacy git routes are gone (the workspace routes replace them)", async () => {
+  for (const path of ["/api/git/diff", "/api/git/log", "/api/git/branches"]) assert.equal((await api(path)).status, 404);
+  assert.equal((await api("/api/git/action", { method: "POST", body: "{}" })).status, 404);
+});
+
+test("profile names that are Object.prototype keys are unknown profiles", async () => {
+  for (const name of ["constructor", "__proto__", "toString"]) {
+    assert.equal((await api("/api/profile/switch", { method: "POST", body: JSON.stringify({ name }) })).status, 404);
+    assert.equal((await api("/api/profile/test", { method: "POST", body: JSON.stringify({ name }) })).status, 404);
+    assert.equal((await api("/api/auth/login", { method: "POST", body: JSON.stringify({ name }) })).status, 400);
+    assert.equal((await api("/api/limit-reset/open", { method: "POST", body: JSON.stringify({ profile: name }) })).status, 400);
+  }
+  assert.equal((await (await api("/api/profile")).json()).active, "default");
+});
+
+test("a session stream ends with \"gone\" when a profile switch drops the session", async () => {
+  const created = await (await api("/api/sessions", { method: "POST", body: JSON.stringify({ cwd: home }) })).json();
+  const stream = sseHead(`/api/sessions/${created.id}/stream?after=abc`, /event: gone/);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.equal((await api("/api/profile/switch", { method: "POST", body: JSON.stringify({ name: "default" }) })).status, 200);
+  assert.match(await stream, /event: gone/);
 });

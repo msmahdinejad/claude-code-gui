@@ -177,4 +177,15 @@ bus.on("command", (name) => {
   if (name === "model-picker") openModelPicker(document.querySelectorAll(".cmp-chip-btn")[1] || anchor);
   else if (name === "mode-picker") openModePicker(document.querySelectorAll(".cmp-chip-btn")[0] || anchor);
   else if (name === "palette") import("../ui/palette.js").then((m) => m.openPalette());
+  else if (name === "add-dir") addFolderToSession();
 });
+
+/** "Add folder to this session…": pick a folder and restart the session with it among its extra directories. */
+async function addFolderToSession() {
+  if (!app.currentId) return;
+  const dir = await pickFolder(app.currentCwd);
+  if (!dir) return;
+  const existing = session.effectiveMeta().addDirs || [];
+  if (dir === app.currentCwd || existing.includes(dir)) return toast(t("This folder is already part of the session."), "info");
+  await session.applyStartOptions({ addDirs: [...existing, dir] }); // toasts the result itself
+}

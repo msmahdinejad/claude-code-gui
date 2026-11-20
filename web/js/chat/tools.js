@@ -103,10 +103,25 @@ const clip = (value, max = 90) => {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 };
 
+/** Pictures a tool returned (Read of an image, screenshots from MCP tools): thumbnails, a click shows them full size. */
+export function resultImages(tool) {
+  const images = tool.result?.images || [];
+  if (!images.length) return null;
+  return h(
+    "div.thumbs.result-thumbs",
+    images.map((image) =>
+      image.data
+        ? h("img.thumb", { src: `data:${image.mediaType};base64,${image.data}`, alt: t("Image"), title: t("Show full size"), onclick: (event) => { event.stopPropagation(); bus.emit("view-image", image); } })
+        : h("div.thumb-omitted", icon("image", 14), image.omitted === "count" ? t("More images not shown") : t("Image too large to show")),
+    ),
+  );
+}
+
 function resultBlock(tool, lang = "") {
   const text = textOf(tool);
-  if (!text) return null;
-  return section(tool.status === "error" ? t("Error") : t("Output"), codeBlock(text, lang, { cls: tool.status === "error" ? "error" : "" }));
+  const images = resultImages(tool);
+  const block = text ? section(tool.status === "error" ? t("Error") : t("Output"), codeBlock(text, lang, { cls: tool.status === "error" ? "error" : "" })) : null;
+  return images ? [images, block] : block;
 }
 
 // ---- built-in renderers ----------------------------------------------------------
@@ -143,6 +158,7 @@ registerToolRenderer("Read", {
   },
   body: (tool) => [resultBlock(tool)],
   fileOf: (tool) => tool.input?.file_path,
+  defaultOpen: (tool) => Boolean(tool.result?.images?.length || app.prefs.expandTools),
 });
 
 registerToolRenderer("Write", {
@@ -277,19 +293,7 @@ registerToolRenderer(["Task", "Agent"], {
   body(tool, ctx) {
     const parts = [];
     if (tool.input?.prompt) parts.push(section(t("Prompt"), h("div.muted.pre", { dir: "auto" }, clip(tool.input.prompt, 1200))));
-    const task = tool.task;
-    if (task) {
-      const state = agentStatus(tool);
-      parts.push(
-        h(
-          "div.task-line",
-          icon(state === "done" ? "check-circle" : state === "error" ? "x-circle" : state === "interrupted" ? "stop" : "loader", 14, state === "running" ? "spin" : ""),
-          h("span", { dir: "auto" }, task.summary || task.description || task.status),
-          task.lastTool ? h("span.muted", ` · ${task.lastTool}`) : null,
-          taskMeta(task) ? h("span.muted", ` · ${taskMeta(task)}`) : null,
-        ),
-      );
-    }
+    parts.push(taskLine(tool));
     // What the subagent wrote along the way (its own messages, not the final report).
     if (tool.notes?.length) {
       parts.push(section(t("Subagent messages"), h("div.sub-notes", tool.notes.slice(-4).map((note) => h("div.markdown", { html: renderMarkdown(note) })))));
@@ -307,7 +311,7 @@ registerToolRenderer(["Task", "Agent"], {
     }
     const text = textOf(tool);
     // A backgrounded subagent's call only answers "launched"; its work is what is shown above.
-    if (text && !/^s*Async agent launched/i.test(text)) parts.push(section(t("Report"), h("div.markdown", { html: renderMarkdown(text) })));
+    if (text && !/^\s*Async agent launched/i.test(text)) parts.push(section(t("Report"), h("div.markdown", { html: renderMarkdown(text) })));
     return parts;
   },
   defaultOpen: (tool) => tool.status === "running",
@@ -351,6 +355,188 @@ registerToolRenderer(/^(Task(Create|Update|Get|List|Stop|Output)|Cron(Create|Del
   title: (tool) => tool.name,
   summary: (tool) => clip(tool.input?.subject || tool.input?.description || tool.input?.prompt || tool.input?.cron || ""),
   body: (tool) => [h("pre.json", { dir: "ltr" }, JSON.stringify(tool.input ?? {}, null, 2)), resultBlock(tool)],
+});
+
+// ---- newer built-in tools (field names from sdk-tools.d.ts) --------------------------
+const structuredOf = (tool) => (tool.structured && typeof tool.structured === "object" ? tool.structured : null);
+const httpUrl = (value) => (typeof value === "string" && /^https?:\/\//i.test(value) ? value : null);
+const externalLink = (url, label) => h("a.btn.small", { href: url, target: "_blank", rel: "noreferrer noopener", onclick: (event) => event.stopPropagation() }, icon("external", 13), label);
+
+/** One line for a background task (a workflow run, a subagent): state icon, its status line and counters. */
+function taskLine(tool) {
+  const task = tool.task;
+  if (!task) return null;
+  const state = agentStatus(tool);
+  return h(
+    "div.task-line",
+    icon(state === "done" ? "check-circle" : state === "error" ? "x-circle" : state === "interrupted" ? "stop" : "loader", 14, state === "running" ? "spin" : ""),
+    h("span", { dir: "auto" }, task.summary || task.description || task.status),
+    task.lastTool ? h("span.muted", ` · ${task.lastTool}`) : null,
+    taskMeta(task) ? h("span.muted", ` · ${taskMeta(task)}`) : null,
+  );
+}
+
+registerToolRenderer("Workflow", {
+  icon: "layers",
+  title: () => t("Workflow"),
+  status: agentStatus, // the call returns at once ("async_launched"); the run is a background task
+  summary: (tool) => {
+    const out = structuredOf(tool);
+    const name = out?.workflowName || tool.task?.workflowName || tool.input?.name || (tool.input?.scriptPath ? baseName(tool.input.scriptPath) : "");
+    const now = agentStatus(tool) === "running" ? tool.task?.summary : "";
+    return clip(now ? `${name} — ${now}` : name);
+  },
+  meta: (tool) => (tool.task ? taskMeta(tool.task) || null : null),
+  body(tool) {
+    const out = structuredOf(tool);
+    const input = tool.input || {};
+    const parts = [taskLine(tool)];
+    if (out?.error) parts.push(h("div.tool-note.danger", icon("alert", 12), h("span", { dir: "auto" }, out.error)));
+    if (out?.warning) parts.push(h("div.tool-note", icon("alert", 12), h("span", { dir: "auto" }, out.warning)));
+    if (out?.summary && out.summary !== tool.task?.summary) parts.push(h("div.muted", { dir: "auto" }, out.summary));
+    const files = [input.scriptPath || out?.scriptPath, out?.transcriptDir].filter(Boolean);
+    if (files.length || httpUrl(out?.sessionUrl)) parts.push(h("div.chip-row", files.map((path) => filePath(path)), httpUrl(out?.sessionUrl) ? externalLink(out.sessionUrl, t("Open remote session")) : null));
+    if (input.args && Object.keys(input.args).length) parts.push(section(t("Input"), codeBlock(JSON.stringify(input.args, null, 2), "json", { maxLines: 20 })));
+    if (input.script) parts.push(section(t("Script"), codeBlock(input.script, "javascript", { maxLines: 20 })));
+    if (!out) parts.push(resultBlock(tool));
+    return parts;
+  },
+  defaultOpen: (tool) => tool.status === "error",
+});
+
+registerToolRenderer("PushNotification", {
+  icon: "bell",
+  title: () => t("Notification"),
+  summary: (tool) => clip(tool.input?.message || ""),
+  body(tool) {
+    const out = structuredOf(tool);
+    const reasons = { config_off: t("notifications are turned off"), user_present: t("you were at the computer"), no_transport: t("no device to notify") };
+    const sent = out && (out.pushSent || out.localSent);
+    return [
+      h("div", { dir: "auto" }, tool.input?.message || ""),
+      out ? h("div.tool-note", icon(sent ? "check" : "info", 12), sent ? t("Sent") : out.disabledReason ? t("Not sent: {reason}", { reason: reasons[out.disabledReason] || out.disabledReason }) : t("Not sent")) : null,
+      tool.status === "error" ? resultBlock(tool) : null,
+    ];
+  },
+});
+
+const ARTIFACT_ACTIONS = { publish: () => t("Publish"), list: () => t("List"), read: () => t("Read"), pin: () => t("Pin"), unpin: () => t("Unpin") };
+registerToolRenderer("Artifact", {
+  icon: "globe",
+  title: () => t("Artifact"),
+  summary: (tool) => {
+    const input = tool.input || {};
+    const out = structuredOf(tool);
+    const action = (ARTIFACT_ACTIONS[input.action || "publish"] || (() => input.action))();
+    return clip(`${action} · ${out?.title || input.title || (input.file_path ? baseName(input.file_path) : "") || input.url || ""}`);
+  },
+  body(tool) {
+    const input = tool.input || {};
+    const out = structuredOf(tool);
+    const parts = [];
+    if (input.file_path) parts.push(h("div.chip-row", filePath(input.file_path)));
+    if (httpUrl(out?.url)) parts.push(h("div.chip-row", externalLink(out.url, out.title || t("Open artifact")), out.version ? h("span.muted.small", `v${out.version}`) : null));
+    if (Array.isArray(out?.artifacts)) {
+      parts.push(h("ul.artifact-list", out.artifacts.map((entry) => h("li", httpUrl(entry.url) ? h("a", { href: entry.url, target: "_blank", rel: "noreferrer noopener", dir: "auto" }, entry.title || entry.url) : h("span", { dir: "auto" }, entry.title || ""), entry.rel === "shared" ? h("span.badge", t("Shared")) : null))));
+    }
+    for (const warning of out?.warnings || []) parts.push(h("div.tool-note", icon("alert", 12), h("span", { dir: "auto" }, warning)));
+    if (!out || tool.status === "error") parts.push(resultBlock(tool));
+    return parts;
+  },
+  defaultOpen: (tool) => Boolean(httpUrl(structuredOf(tool)?.url)),
+});
+
+/** Paths a SendUserFile call names (its input schema is not published: accept the usual shapes). */
+function sentFiles(input = {}) {
+  const list = [input.file_path, input.path, ...(Array.isArray(input.file_paths) ? input.file_paths : []), ...(Array.isArray(input.paths) ? input.paths : []), ...(Array.isArray(input.files) ? input.files : [])];
+  return list.map((entry) => (typeof entry === "string" ? entry : entry?.path || entry?.file_path)).filter((entry) => typeof entry === "string" && entry);
+}
+
+registerToolRenderer("SendUserFile", {
+  icon: "paperclip",
+  title: () => t("Send file"),
+  summary: (tool) => clip(sentFiles(tool.input).map((path) => baseName(path)).join(", ")),
+  body(tool) {
+    const files = sentFiles(tool.input);
+    const note = tool.input?.message || tool.input?.caption || tool.input?.description;
+    return [files.length ? h("div.chip-row", files.map((path) => filePath(path))) : null, note ? h("div", { dir: "auto" }, note) : null, resultBlock(tool)];
+  },
+  defaultOpen: () => true,
+});
+
+const OUTCOME = { fixed: () => t("Fixed"), skipped: () => t("Skipped"), no_change_needed: () => t("No change needed") };
+registerToolRenderer("ReportFindings", {
+  icon: "search",
+  title: () => t("Findings"),
+  summary: (tool) => {
+    const findings = tool.input?.findings || [];
+    return findings.length ? t("{n} findings", { n: findings.length }) : t("No findings");
+  },
+  body(tool) {
+    const findings = tool.input?.findings || structuredOf(tool)?.findings || [];
+    if (!findings.length) return [h("div.muted", t("No findings"))];
+    return [
+      h(
+        "ol.findings",
+        findings.map((finding) => {
+          const where = `${finding.file || ""}${finding.line ? `:${finding.line}` : ""}`;
+          const fix = () =>
+            bus.emit("composer:fill", t("Fix this finding in {where}: {summary}\nFailure scenario: {scenario}", { where, summary: finding.summary || "", scenario: finding.failure_scenario || "" }));
+          return h(
+            "li.finding",
+            h(
+              "div.finding-head",
+              finding.file ? filePath(finding.file, finding.line ? `:${finding.line}` : "") : null,
+              finding.category ? h("span.badge", { dir: "ltr" }, finding.category) : null,
+              finding.verdict ? h(`span.badge${finding.verdict === "CONFIRMED" ? ".ok" : ""}`, finding.verdict === "CONFIRMED" ? t("Confirmed") : t("Plausible")) : null,
+              finding.outcome ? h("span.badge", (OUTCOME[finding.outcome] || (() => finding.outcome))()) : null,
+              finding.outcome ? null : h("button.btn.small.finding-fix", { type: "button", title: t("Ask Claude to fix this"), onclick: (event) => { event.stopPropagation(); fix(); } }, icon("wrench", 12), t("Fix this")),
+            ),
+            h("div.finding-summary", { dir: "auto" }, finding.summary || finding.short_summary || ""),
+            finding.failure_scenario ? h("div.finding-scenario.muted", { dir: "auto" }, finding.failure_scenario) : null,
+          );
+        }),
+      ),
+    ];
+  },
+  defaultOpen: () => true,
+});
+
+registerToolRenderer("ProposeGoal", {
+  icon: "circle-dot",
+  title: () => t("Goal"),
+  summary: (tool) => clip(tool.input?.condition || ""),
+  body(tool) {
+    const asked = tool.input?.ask_user !== false;
+    const state = tool.status === "done" ? (asked ? t("Goal set") : t("Goal set without asking; clear it with /goal clear")) : tool.status === "denied" ? t("Declined") : asked ? t("Waiting for your approval") : "";
+    return [
+      h("div.goal-condition", { dir: "auto" }, tool.input?.condition || ""),
+      state ? h("div.tool-note", icon(tool.status === "done" ? "check" : tool.status === "denied" ? "x" : "clock", 12), state) : null,
+      tool.status === "error" ? resultBlock(tool) : null,
+    ];
+  },
+  defaultOpen: () => true,
+});
+
+registerToolRenderer(["EnterWorktree", "ExitWorktree"], {
+  icon: "git-branch",
+  title: (tool) => (tool.name === "EnterWorktree" ? t("Enter worktree") : t("Leave worktree")),
+  summary: (tool) => {
+    const out = structuredOf(tool);
+    if (tool.name === "ExitWorktree") return clip(`${tool.input?.action === "remove" ? t("Remove it") : t("Keep it")}${out?.worktreeBranch ? ` · ${out.worktreeBranch}` : ""}`);
+    return clip(out?.worktreeBranch || tool.input?.name || (tool.input?.path ? baseName(tool.input.path) : ""));
+  },
+  body(tool) {
+    const out = structuredOf(tool);
+    if (!out) return [resultBlock(tool)];
+    const discarded = (out.discardedFiles || 0) + (out.discardedCommits || 0);
+    return [
+      h("div.chip-row", out.worktreeBranch ? h("span.badge", { dir: "ltr" }, icon("git-branch", 11), out.worktreeBranch) : null, out.worktreePath ? h("span.muted.small", { dir: "ltr", title: out.worktreePath }, shortPath(out.worktreePath, 60)) : null),
+      out.message ? h("div.muted", { dir: "auto" }, out.message) : null,
+      discarded ? h("div.tool-note.danger", icon("trash", 12), t("Discarded {files} file(s) and {commits} commit(s)", { files: out.discardedFiles || 0, commits: out.discardedCommits || 0 })) : null,
+      tool.status === "error" ? resultBlock(tool) : null,
+    ];
+  },
 });
 
 registerToolRenderer(/^mcp__/, {

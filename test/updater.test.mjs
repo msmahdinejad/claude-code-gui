@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ClaudeUpdater, binIn, compareVersions, installOf } from "../server/lib/claude-updater.mjs";
+import { EventEmitter } from "node:events";
+import { existsSync } from "node:fs";
+import { ClaudeUpdater, binIn, compareVersions, installOf, npmCommand } from "../server/lib/claude-updater.mjs";
+import { claudeBinsInUse, claudeBusy, trackClaude } from "../server/lib/claude-processes.mjs";
 
 const OWN = join("prefix", "node_modules", "@anthropic-ai", "claude-code", "bin", "claude.exe");
 
@@ -25,7 +28,7 @@ function session(extra = {}) {
 }
 
 /** A fake npm/claude: versions per executable; `npm install --prefix <dir>` creates a working copy, `-g` changes OWN. */
-async function setup({ installed = "2.1.309", latest = "2.1.322", copyWorks = true, swapWorks = true, sessions = [session()], enabled = true } = {}) {
+async function setup({ installed = "2.1.309", latest = "2.1.322", copyWorks = true, swapWorks = true, sessions = [session()], enabled = true, customCommand = false, own = OWN, processes = { busy: () => false, binsInUse: () => new Set() } } = {}) {
   const dataDir = await mkdtemp(join(tmpdir(), "wh-upd-"));
   const versions = new Map([[OWN, installed]]);
   const calls = [];
@@ -52,7 +55,8 @@ async function setup({ installed = "2.1.309", latest = "2.1.322", copyWorks = tr
     return { code: copyWorks ? 0 : 1, stdout: "", stderr: copyWorks ? "" : "ETIMEDOUT" };
   };
   const updater = new ClaudeUpdater({
-    config, manager, catalog, profileBin: () => OWN, enabled: () => enabled, run,
+    config, manager, catalog, profileBin: () => own, customCommand: () => customCommand, enabled: () => enabled, run, processes,
+    npmCommand: { file: "npm", args: [], shell: false }, locked: async () => false,
     exists: (path) => Boolean(versions.get(path)),
     sleep: async () => { updater.onSleep?.(); },
   });
@@ -176,4 +180,82 @@ test("“now” stops waiting for a quiet moment and stops the sessions on the o
   assert.equal(busy.closed, 1);
   assert.equal(ctx.versions.get(OWN), "2.1.322");
   await ctx.done();
+});
+
+test("a profile with its own command or a native install never switches to our copy", async () => {
+  for (const options of [{ customCommand: true }, { own: join("home", ".local", "bin", "claude.exe") }]) {
+    const ctx = await setup(options);
+    if (options.own) ctx.versions.set(options.own, "2.1.309");
+    ctx.config.claudeBin = options.own || OWN;
+    await ctx.updater.tick();
+    assert.equal(ctx.config.claudeBin, options.own || OWN);
+    assert.ok(!ctx.calls.some((call) => /install --prefix/.test(call)), "no copy installed");
+    const dir = join(ctx.dataDir, "claude-code", "2.1.322");
+    await mkdir(dir, { recursive: true });
+    ctx.versions.set(binIn(dir), "2.1.322");
+    assert.equal(await ctx.updater.useInstalled(), null);
+    await ctx.done();
+  }
+});
+
+test("older copies are pruned right after a new one is activated, except those still in use", async () => {
+  const root = (ctx, name) => join(ctx.dataDir, "claude-code", name);
+  let inUse;
+  const busy = session({ state: "running" });
+  const ctx = await setup({ sessions: [busy], processes: { busy: () => false, binsInUse: () => inUse } });
+  inUse = new Set([binIn(root(ctx, "2.1.310"))]);
+  for (const name of ["2.1.300", "2.1.310"]) await mkdir(root(ctx, name), { recursive: true });
+  let checked = false;
+  ctx.updater.onSleep = () => {
+    if (checked) { busy.state = "idle"; return; }
+    checked = true;
+    assert.ok(!existsSync(root(ctx, "2.1.300")), "unused copy removed while waiting");
+    assert.ok(existsSync(root(ctx, "2.1.310")), "copy used by another Claude process kept");
+  };
+  await ctx.updater.tick();
+  assert.ok(checked);
+  await ctx.done();
+});
+
+test("other Claude processes (sign-in, CLI runs) keep the swap waiting", async () => {
+  let busy = true;
+  const ctx = await setup({ processes: { busy: () => busy, binsInUse: () => new Set() } });
+  assert.equal(ctx.updater.idle(), false);
+  busy = false;
+  assert.equal(ctx.updater.idle(), true);
+  await ctx.done();
+});
+
+test("npm runs without a shell when npm-cli.js sits next to node, and refuses unsafe paths through cmd", async () => {
+  const direct = npmCommand({ platform: "win32", execPath: join("C:", "node", "node.exe"), exists: () => true });
+  assert.equal(direct.shell, false);
+  assert.match(direct.args[0], /npm-cli\.js$/);
+  assert.deepEqual(npmCommand({ platform: "win32", execPath: "node.exe", exists: () => false }), { file: "npm.cmd", args: [], shell: true });
+  const calls = [];
+  const updater = new ClaudeUpdater({ config: { dataDir: "x" }, manager: { sessions: new Map() }, profileBin: () => OWN, npmCommand: { file: "npm.cmd", args: [], shell: true }, run: async (file, args, options) => { calls.push({ file, args, options }); return { code: 0, stdout: "", stderr: "" }; } });
+  assert.equal((await updater.npm(["install", "--prefix", "C:/a%PATH%b"])).code, 1);
+  assert.equal(calls.length, 0);
+  await updater.npm(["install", "--prefix", "C:/Program Files/x"]);
+  assert.deepEqual(calls[0].args, ['"install"', '"--prefix"', '"C:/Program Files/x"']);
+  assert.equal(calls[0].options.shell, true);
+});
+
+test("tracked Claude processes: busy while running, files kept for keepMs", async () => {
+  const child = new EventEmitter();
+  child.exitCode = null;
+  trackClaude("a.exe", child);
+  let settle;
+  trackClaude("b.exe", new Promise((resolve) => { settle = resolve; }));
+  const window = new EventEmitter();
+  window.exitCode = null;
+  trackClaude("c.exe", window, { keepMs: 60_000 });
+  assert.equal(claudeBusy(), true);
+  assert.deepEqual([...claudeBinsInUse()].sort(), ["a.exe", "b.exe", "c.exe"]);
+  child.emit("exit", 0);
+  settle();
+  await new Promise((resolve) => setImmediate(resolve));
+  window.emit("exit", 0);
+  assert.equal(claudeBusy(), false);
+  assert.deepEqual([...claudeBinsInUse()], ["c.exe"]);
+  assert.deepEqual([...claudeBinsInUse(Date.now() + 61_000)], []);
 });

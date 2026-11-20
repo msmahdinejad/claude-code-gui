@@ -12,6 +12,21 @@ import { openModelPicker, openModePicker, openEffortPicker, currentModelInfo, mo
 import { makeCtx } from "../ctx.js";
 
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
+const MAX_PDF_BYTES = 10 * 1024 * 1024;
+const MAX_TEXT_BYTES = 500 * 1024;
+// Text and code files are told apart by extension: browsers leave file.type empty for most of them.
+const TEXT_EXTENSIONS = new Set("txt md markdown rst json jsonc json5 yaml yml toml xml csv tsv log ini cfg conf env properties js mjs cjs jsx ts tsx mts cts py rb go rs java kt kts scala c h cc cpp cxx hpp cs php sh bash zsh fish ps1 psm1 bat cmd sql html htm css scss sass less vue svelte astro swift lua r pl dart ex exs erl hs clj tex diff patch graphql gql proto tf dockerfile gitignore editorconfig lock".split(" "));
+const FILE_ACCEPT = ["image/*", "application/pdf", "text/*", ...[...TEXT_EXTENSIONS].map((ext) => `.${ext}`)].join(",");
+
+const extensionOf = (name) => (String(name).includes(".") ? String(name).split(".").pop().toLowerCase() : String(name).toLowerCase());
+/** "image" | "pdf" | "text" | null for a file the composer can attach. */
+function fileKind(file) {
+  if (file.type.startsWith("image/")) return "image";
+  if (file.type === "application/pdf" || extensionOf(file.name) === "pdf") return "pdf";
+  if (file.type.startsWith("text/") || ["application/json", "application/xml", "application/x-yaml", "application/javascript"].includes(file.type) || TEXT_EXTENSIONS.has(extensionOf(file.name))) return "text";
+  return null;
+}
+const formatSize = (bytes) => (bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
 
 export function mountComposer(host) {
   const textarea = h("textarea.cmp-input", { rows: 1, dir: "auto", placeholder: t("Message Claude…"), "aria-label": t("Message"), spellcheck: "true" });
@@ -23,12 +38,12 @@ export function mountComposer(host) {
   const effortBtn = h("button.cmp-chip-btn.effort-btn", { type: "button", title: t("Reasoning effort"), onclick: (event) => openEffortPicker(event.currentTarget) });
   const plusBtn = ibtn("plus", t("Add"), (event) => plusMenu(event.currentTarget));
   const micBtn = ibtn("mic", t("Dictate"), () => toggleDictation(), { cls: "mic" });
-  const fileInput = h("input", { type: "file", accept: "image/*", multiple: true, class: "hidden", onchange: () => { addFiles([...fileInput.files]); fileInput.value = ""; } });
+  const fileInput = h("input", { type: "file", accept: FILE_ACCEPT, multiple: true, class: "hidden", onchange: () => { addFiles([...fileInput.files]); fileInput.value = ""; } });
   const hint = h("div.footer-hint");
   const root = h("div.composer", attachments, queueBox, textarea, h("div.cmp-bar", plusBtn, modeBtn, h("span.grow"), effortBtn, modelBtn, micBtn, sendBtn), fileInput);
   host.replaceChildren(root, hint);
 
-  let images = []; // {mediaType, data, name}
+  let images = []; // every attachment: {mediaType, data (base64), name, size}; pictures, PDFs and text files
   const queues = new Map(); // conversation id -> [{text, images}]; each conversation keeps its own waiting messages
   const queueFor = (id = app.currentId) => {
     if (!queues.has(id)) queues.set(id, []);
@@ -85,13 +100,19 @@ export function mountComposer(host) {
   // ---- attachments ----
   function renderAttachments() {
     attachments.classList.toggle("hidden", !images.length);
-    attachments.replaceChildren(...images.map((image, index) => h("div.cmp-attach", h("img", { src: `data:${image.mediaType};base64,${image.data}`, alt: image.name }), h("button", { type: "button", title: t("Remove"), onclick: () => { images.splice(index, 1); renderAttachments(); refresh(); } }, icon("x", 11)))));
+    attachments.replaceChildren(
+      ...images.map((image, index) => {
+        const remove = h("button", { type: "button", title: t("Remove"), onclick: () => { images.splice(index, 1); renderAttachments(); refresh(); } }, icon("x", 11));
+        if (image.mediaType.startsWith("image/")) return h("div.cmp-attach", h("img", { src: `data:${image.mediaType};base64,${image.data}`, alt: image.name }), remove);
+        return h("div.cmp-attach.file", { title: image.name }, icon(image.mediaType === "application/pdf" ? "file" : "file-text", 16), h("span.cmp-file-name", { dir: "auto" }, image.name), image.size ? h("span.cmp-file-size", formatSize(image.size)) : null, remove);
+      }),
+    );
   }
 
   function readFile(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => resolve({ mediaType: file.type || "image/png", name: file.name || "image", data: String(reader.result).split(",")[1] });
+      reader.onload = () => resolve({ mediaType: file.type || "image/png", name: file.name || "image", size: file.size, data: String(reader.result).split(",")[1] });
       reader.onerror = () => reject(reader.error);
       reader.readAsDataURL(file);
     });
@@ -99,22 +120,45 @@ export function mountComposer(host) {
 
   async function addFiles(files) {
     for (const file of files) {
-      if (!file.type.startsWith("image/")) {
-        toast(t("Only images can be attached. Use @ to reference a file by path."), "error");
+      const kind = fileKind(file);
+      if (!kind) {
+        toast(t("This file type cannot be attached. Pictures, PDFs and text or code files work; use @ to reference other files by path."), "error");
         continue;
       }
-      if (file.size > MAX_IMAGE_BYTES) {
+      if (kind === "image" && file.size > MAX_IMAGE_BYTES) {
         toast(t("Image is too large (max 12 MB)."), "error");
         continue;
       }
-      images.push(await readFile(file));
+      if (kind === "pdf" && file.size > MAX_PDF_BYTES) {
+        toast(t("{name} is too large (PDF: max 10 MB).", { name: file.name }), "error");
+        continue;
+      }
+      if (kind === "text") {
+        if (file.size > MAX_TEXT_BYTES) {
+          toast(t("{name} is too large (text: max 500 KB).", { name: file.name }), "error");
+          continue;
+        }
+        const head = new Uint8Array(await file.slice(0, 4096).arrayBuffer());
+        if (head.includes(0)) { // a binary file with a text-like name
+          toast(t("{name} is not a text file.", { name: file.name }), "error");
+          continue;
+        }
+      }
+      try {
+        const item = await readFile(file);
+        if (kind === "pdf") item.mediaType = "application/pdf";
+        else if (kind === "text") item.mediaType = "text/plain";
+        images.push(item);
+      } catch (error) {
+        toast(errorMessage(error), "error");
+      }
     }
     renderAttachments();
     refresh();
   }
 
   textarea.addEventListener("paste", (event) => {
-    const files = [...(event.clipboardData?.files || [])].filter((file) => file.type.startsWith("image/"));
+    const files = [...(event.clipboardData?.files || [])].filter((file) => fileKind(file));
     if (files.length) {
       event.preventDefault();
       addFiles(files);
@@ -137,7 +181,7 @@ export function mountComposer(host) {
         h(
           "div.queue-item",
           icon("clock", 13),
-          h("span", { dir: "auto" }, entry.text || t("(image)")),
+          h("span", { dir: "auto" }, entry.text || (entry.images.every((image) => image.mediaType.startsWith("image/")) ? t("(image)") : t("(attachment)"))),
           h("button.mini", { type: "button", title: t("Send now (interrupt)"), onclick: () => sendNow(entry) }, icon("zap", 13)),
           h("button.mini", { type: "button", title: t("Remove"), onclick: () => { queue.splice(queue.indexOf(entry), 1); renderQueue(); } }, icon("x", 13)),
         ),
@@ -256,7 +300,7 @@ export function mountComposer(host) {
     );
     list.append(...rows);
     if (!ac) {
-      const pop = popover(textarea, list, { placement: "top-start", className: "ac-popover", offset: 10 });
+      const pop = popover(textarea, list, { placement: "top-start", className: "ac-popover", offset: 10, focus: false, onClose: () => { ac = null; } });
       ac = { pop, items, index: 0, kind };
     } else {
       ac.pop.el.replaceChildren(list);
@@ -407,7 +451,7 @@ export function mountComposer(host) {
   // ---- plus menu ----
   function plusMenu(anchor) {
     menu(anchor, [
-      { label: t("Attach image"), icon: "image", onClick: () => fileInput.click() },
+      { label: t("Attach file or image"), icon: "paperclip", onClick: () => fileInput.click() },
       { label: t("Mention a file (@)"), icon: "at", onClick: () => { textarea.value += (textarea.value && !/\s$/.test(textarea.value) ? " " : "") + "@"; textarea.focus(); updateAutocomplete(); } },
       { label: t("Slash commands (/)"), icon: "slash", onClick: () => { textarea.value = "/"; textarea.focus(); updateAutocomplete(); } },
       "-",

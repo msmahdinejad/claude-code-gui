@@ -4,6 +4,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { trackClaude } from "./claude-processes.mjs";
 
 const URL_PATTERN = /https?:\/\/[^\s"'<>]+/;
 const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
@@ -37,6 +38,7 @@ export class LoginFlows extends EventEmitter {
     for (const [id, old] of this.flows) if (!old.active && this.flows.size > 5) this.flows.delete(id);
 
     const child = spawn(target.path, [...(target.args || []), "auth", "login"], { env: target.env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+    trackClaude(target.path, child); // the updater leaves its files alone meanwhile
     flow.child = child;
     const onData = (chunk) => {
       flow.output = (flow.output + String(chunk).replace(ANSI, "")).slice(-MAX_OUTPUT);

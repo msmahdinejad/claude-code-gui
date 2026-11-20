@@ -4,7 +4,7 @@
 import { createServer } from "node:http";
 import { createReadStream } from "node:fs";
 import { execFile, execFileSync } from "node:child_process";
-import { stat, readdir, mkdir } from "node:fs/promises";
+import { stat, readdir, mkdir, open } from "node:fs/promises";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { extname, join, resolve, relative, isAbsolute, sep, dirname } from "node:path";
@@ -24,7 +24,9 @@ import {
 import { SessionManager } from "./lib/session-manager.mjs";
 import { Catalog } from "./lib/catalog.mjs";
 import { UiStore } from "./lib/ui-store.mjs";
-import { applyProfile, loadConfig, profileSummary, testProfile } from "./lib/config.mjs";
+import { applyProfile, hasProfile, loadConfig, profileSummary, testProfile } from "./lib/config.mjs";
+import { redactUrl } from "./lib/redact.mjs";
+import { trackClaude } from "./lib/claude-processes.mjs";
 import * as fsgit from "./lib/fs-git.mjs";
 import * as cfiles from "./lib/claude-files.mjs";
 import { openExternal, openUi } from "./lib/ui-launch.mjs";
@@ -72,7 +74,7 @@ if (config.version) {
 
 const store = await new UiStore(join(config.dataDir, "ui-state.json")).load();
 const savedProfile = store.data.prefs.activeProfile;
-applyProfile(config, config.profiles[savedProfile] ? savedProfile : config.defaultProfile);
+applyProfile(config, hasProfile(config, savedProfile) ? savedProfile : config.defaultProfile);
 const manager = new SessionManager(config, { prefs: () => store.data.prefs });
 const notifier = new Notifier({
   manager,
@@ -139,16 +141,26 @@ function isLocalHost(hostHeader = "") {
   return host === "127.0.0.1" || host === "localhost" || host === "::1";
 }
 
-function sameOrigin(req) {
-  if (!isLocalHost(req.headers.host)) return false;
-  const origin = req.headers.origin;
-  if (!origin) return req.method === "GET" || req.method === "HEAD";
+function isOwnOrigin(value) {
   try {
-    const url = new URL(origin);
+    const url = new URL(value);
     return isLocalHost(url.host) && String(url.port || 80) === String(PORT);
   } catch {
     return false;
   }
+}
+
+function sameOrigin(req) {
+  if (!isLocalHost(req.headers.host)) return false;
+  // Browsers say where a request comes from even when they send no Origin (<img>, <script>, navigation): only the page
+  // itself may call the API. Tools without these headers (the tray, curl) keep working for GET.
+  const site = req.headers["sec-fetch-site"];
+  if (site !== undefined && site !== "same-origin") return false;
+  const referer = req.headers.referer;
+  if (referer && !isOwnOrigin(referer)) return false;
+  const origin = req.headers.origin;
+  if (!origin) return req.method === "GET" || req.method === "HEAD";
+  return isOwnOrigin(origin);
 }
 
 function session(id, { create = false, cwd } = {}) {
@@ -162,9 +174,10 @@ function session(id, { create = false, cwd } = {}) {
 
 function runClaudeCli(args, { cwd, timeout = 60_000 } = {}) {
   return new Promise((resolvePromise) => {
-    execFile(config.claudeBin || "claude", args, { cwd: cwd || config.defaultCwd, env: { ...process.env }, timeout, maxBuffer: 8 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
+    const bin = config.claudeBin || "claude";
+    trackClaude(bin, execFile(bin, args, { cwd: cwd || config.defaultCwd, env: { ...process.env }, timeout, maxBuffer: 8 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
       resolvePromise({ ok: !error, code: error?.code ?? 0, stdout: String(stdout || ""), stderr: String(stderr || "") });
-    });
+    }));
   });
 }
 
@@ -371,9 +384,13 @@ route("GET", "/api/profile/status", async ({ query }) => {
   profileStatus = { at: Date.now(), value: { profile: config.activeProfile, ...(await testProfile(config, config.activeProfile)) } };
   return profileStatus.value;
 });
-route("POST", "/api/profile/test", async ({ body }) => ({ profile: body.name, ...(await testProfile(config, body.name || config.activeProfile)) }));
+route("POST", "/api/profile/test", async ({ body }) => {
+  const name = body.name || config.activeProfile;
+  if (!hasProfile(config, name)) throw new HttpError(404, "unknown profile");
+  return { profile: body.name, ...(await testProfile(config, name)) };
+});
 route("POST", "/api/profile/switch", async ({ body }) => {
-  if (!config.profiles[body.name]) throw new HttpError(404, "unknown profile");
+  if (!hasProfile(config, body.name)) throw new HttpError(404, "unknown profile");
   manager.closeSessions();
   applyProfile(config, body.name);
   catalog.invalidate();
@@ -400,7 +417,7 @@ route("GET", "/api/config", async () => ({
   prefs: store.data.prefs,
   recentProjects: store.data.recentProjects,
   proxy: { http: Boolean(process.env.HTTPS_PROXY || process.env.HTTP_PROXY), noProxy: process.env.NO_PROXY || "" },
-  gateway: /^https?:\/\/api\.anthropic\.com\/?$/.test(process.env.ANTHROPIC_BASE_URL || "") ? null : process.env.ANTHROPIC_BASE_URL || null,
+  gateway: /^https?:\/\/api\.anthropic\.com\/?$/.test(process.env.ANTHROPIC_BASE_URL || "") ? null : process.env.ANTHROPIC_BASE_URL ? redactUrl(process.env.ANTHROPIC_BASE_URL) : null,
 }));
 
 route("PUT", "/api/prefs", async ({ body }) => {
@@ -443,6 +460,30 @@ route("POST", "/api/sessions", async ({ body }) => {
   return created.summary();
 });
 
+/** cwd recorded in a transcript, read from its first few MB (the SDK only looks at the head chunk). */
+async function transcriptCwd(id) {
+  const root = join(cfiles.configDir(), "projects");
+  let folders;
+  try {
+    folders = await readdir(root, { withFileTypes: true });
+  } catch {
+    return undefined;
+  }
+  const size = 4 * 1024 * 1024;
+  for (const folder of folders) {
+    let handle;
+    try {
+      handle = await open(join(root, folder.name, `${id}.jsonl`), "r");
+      const { buffer, bytesRead } = await handle.read(Buffer.alloc(size), 0, size, 0);
+      const match = /"cwd":"((?:[^"\\]|\\.)*)"/.exec(buffer.toString("utf8", 0, bytesRead));
+      if (match) return JSON.parse(`"${match[1]}"`);
+    } catch { /* not in this project folder */ } finally {
+      await handle?.close();
+    }
+  }
+  return undefined;
+}
+
 route("GET", "/api/sessions/([^/]+)", async ({ params, query }) => {
   const [id] = params;
   const cwd = query.get("cwd") || undefined;
@@ -455,13 +496,21 @@ route("GET", "/api/sessions/([^/]+)", async ({ params, query }) => {
   try {
     info = await getSessionInfo(id, { dir: cwd });
   } catch { /* ignore */ }
+  // The list can lack a cwd (e.g. the first transcript line is a huge image), so the client falls back to a
+  // folder the transcript does not live in. Look the session up by id alone and recover its cwd from the file.
+  let recoveredCwd;
+  if (cwd && !history.length && !info) {
+    try { history = await getSessionMessages(id, { includeSystemMessages: true }); } catch { /* draft or no transcript */ }
+    try { info = await getSessionInfo(id); } catch { /* ignore */ }
+    if (history.length || info) recoveredCwd = await transcriptCwd(id);
+  }
   const meta = { ...store.sessionMeta(id), ...(live?.meta || {}) };
   const entries = live
     ? live.buffer.filter((entry) => entry.msg.type !== "stream_event" || entry.seq > live.seq - 80)
     : [];
   return {
     id,
-    cwd: info?.cwd || live?.cwd || cwd || config.defaultCwd,
+    cwd: info?.cwd || live?.cwd || recoveredCwd || cwd || config.defaultCwd,
     info: info ? normalizeSessionInfo(info) : null,
     meta,
     history,
@@ -577,9 +626,10 @@ route("POST", "/api/sessions/([^/]+)/fork", async ({ params, body }) => {
 
 route("DELETE", "/api/sessions/([^/]+)", async ({ params, query }) => {
   const id = params[0];
-  manager.get(id)?.close();
-  manager.sessions.delete(id);
+  manager.remove(id); // also ends the streams attached to it
   await deleteSession(id, { dir: query.get("cwd") || undefined }).catch(() => {});
+  // A wrong/missing cwd makes the call above a silent no-op; delete by id alone if the transcript is still there.
+  if (await getSessionInfo(id).catch(() => null)) await deleteSession(id).catch(() => {});
   manager.emit("sessions.changed");
   return { ok: true };
 });
@@ -590,11 +640,7 @@ route("GET", "/api/fs/read", async ({ query }) => fsgit.readTextFile(resolve(que
 route("GET", "/api/fs/search", async ({ query }) => ({ files: await fsgit.searchFiles(resolve(query.get("cwd") || config.defaultCwd), query.get("q") || "") }));
 route("GET", "/api/fs/home", async () => ({ home: homedir(), cwd: config.defaultCwd }));
 route("GET", "/api/git/info", async ({ query }) => fsgit.gitInfo(resolve(query.get("cwd") || config.defaultCwd)));
-route("GET", "/api/git/diff", async ({ query }) =>
-  fsgit.gitDiff(resolve(query.get("cwd") || config.defaultCwd), { path: query.get("path") || undefined, staged: query.get("staged") === "1", base: query.get("base") || undefined }));
-route("GET", "/api/git/log", async ({ query }) => ({ commits: await fsgit.gitLog(resolve(query.get("cwd") || config.defaultCwd)) }));
-route("GET", "/api/git/branches", async ({ query }) => ({ branches: await fsgit.gitBranches(resolve(query.get("cwd") || config.defaultCwd)) }));
-route("POST", "/api/git/action", async ({ body }) => fsgit.gitAction(resolve(body.cwd || config.defaultCwd), body.action, body.args || {}));
+// diff / log / branches / actions live in routes/workspace.mjs (/api/ws/git/*).
 
 // ---- Claude Code config --------------------------------------------------------------
 route("GET", "/api/settings", async ({ query }) => cfiles.readSettings(query.get("scope") || "user", query.get("cwd") || config.defaultCwd));
@@ -672,7 +718,7 @@ manager.on("session.first-result", async (live) => {
   try {
     const info = await getSessionInfo(live.id); // by id only: a cwd that is spelled differently (8.3 names) finds nothing
     if (!info || info.customTitle || store.sessionMeta(live.id).title || !info.firstPrompt) return;
-    const title = await generateTitle(config, { cwd: live.cwd, prompt: info.firstPrompt });
+    const title = await trackClaude(config.claudeBin, generateTitle(config, { cwd: live.cwd, prompt: info.firstPrompt }));
     if (!title) return;
     await renameSession(live.id, title).catch(() => store.patchSessionMeta(live.id, { title }));
     live.meta.title = title;
@@ -706,15 +752,27 @@ function handleSessionStream(req, res, id, after) {
   }
   // A client that already saw a higher seq than this session has produced talks to a different (restarted) server
   // object: tell it to start over, otherwise it would drop every new message as "already seen".
-  const seen = Math.max(after, Number(req.headers["last-event-id"] || 0));
+  const seen = Math.max(after, Number(req.headers["last-event-id"]) || 0);
   if (seen > target.seq) {
     sseWrite(res, "reset", { seq: target.seq });
     after = 0;
   }
   for (const entry of target.eventsAfter(after)) sseWrite(res, "msg", entry, entry.seq);
   const listener = (entry) => sseWrite(res, "msg", entry, entry.seq);
+  // The server dropped this session object (deleted, profile switched): "gone" makes the page re-attach to the new one.
+  const detached = () => {
+    sseWrite(res, "gone", {});
+    res.end();
+  };
+  const ping = setInterval(() => res.write(": ping\n\n"), 20_000);
+  ping.unref();
   target.on("event", listener);
-  req.on("close", () => target.off("event", listener));
+  target.once("detached", detached);
+  req.on("close", () => {
+    clearInterval(ping);
+    target.off("event", listener);
+    target.off("detached", detached);
+  });
 }
 
 setInterval(() => {
@@ -753,7 +811,7 @@ const server = createServer(async (req, res) => {
       if (req.method === "GET" && url.pathname === "/api/events") return handleGlobalEvents(req, res);
       const streamMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/stream$/);
       if (req.method === "GET" && streamMatch) {
-        return handleSessionStream(req, res, streamMatch[1], Number(url.searchParams.get("after") || req.headers["last-event-id"] || 0));
+        return handleSessionStream(req, res, streamMatch[1], Number(url.searchParams.get("after") || req.headers["last-event-id"]) || 0);
       }
       for (const entry of routes) {
         if (entry.method !== req.method) continue;

@@ -17,8 +17,9 @@
 import { EventEmitter } from "node:events";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readdir, rm } from "node:fs/promises";
-import { join, sep } from "node:path";
+import { mkdir, open, readdir, rm } from "node:fs/promises";
+import { dirname, join, sep } from "node:path";
+import { claudeProcesses } from "./claude-processes.mjs";
 
 const PACKAGE = "@anthropic-ai/claude-code";
 const VERSION = /^\d+\.\d+\.\d+$/;
@@ -29,6 +30,8 @@ const IDLE_POLL_MS = 30 * 1000;
 const RETRY_AFTER_FAILURE_MS = 60 * 60 * 1000;
 const STAGE_TIMEOUT_MS = 60 * 60 * 1000; // slow proxies: the package is ~300 MB
 const SWAP_TIMEOUT_MS = 10 * 60 * 1000;
+const EXIT_WAIT_MS = 8000; // the SDK gives a closed process 2 s, then 5 s more before it kills it
+const SHELL_SAFE = /^[^"%&|<>^\r\n]+$/; // what may go (quoted) through cmd.exe: no quotes, %VAR%, pipes or escapes
 
 /** -1 / 0 / 1 for dotted numeric versions. */
 export function compareVersions(a, b) {
@@ -60,7 +63,27 @@ export function installOf(binPath, platform = process.platform) {
 /** The executable inside an install made with `npm install --prefix <dir>`. */
 export const binIn = (dir) => join(dir, "node_modules", "@anthropic-ai", "claude-code", "bin", "claude.exe");
 
-const quote = (path) => (process.platform === "win32" ? `"${path}"` : path); // npm.cmd runs through a shell on Windows
+/**
+ * How to run npm: node + npm-cli.js when npm sits next to this node (no shell involved), otherwise `npm`, which on
+ * Windows is npm.cmd and needs a shell.
+ */
+export function npmCommand({ platform = process.platform, execPath = process.execPath, exists = existsSync } = {}) {
+  const base = dirname(execPath);
+  const cli = platform === "win32" ? join(base, "node_modules", "npm", "bin", "npm-cli.js") : join(base, "..", "lib", "node_modules", "npm", "bin", "npm-cli.js");
+  if (exists(cli)) return { file: execPath, args: [cli], shell: false };
+  return platform === "win32" ? { file: "npm.cmd", args: [], shell: true } : { file: "npm", args: [], shell: false };
+}
+
+/** Windows: is `bin` still held by a running process? (An executable that runs cannot be opened for writing.) */
+async function locked(bin) {
+  if (process.platform !== "win32" || !bin) return false;
+  try {
+    await (await open(bin, "r+")).close();
+    return false;
+  } catch (error) {
+    return error.code === "EBUSY";
+  }
+}
 
 const defaultRun = (file, args, { timeoutMs = 120_000, env = process.env, shell = false } = {}) =>
   new Promise((resolve) => {
@@ -76,15 +99,19 @@ export class ClaudeUpdater extends EventEmitter {
    * @param {object} deps.manager    SessionManager (sessions, hold())
    * @param {object} deps.catalog    Catalog (invalidate(), inflight)
    * @param {() => string|null} deps.profileBin  the active profile's own executable (what the terminal runs)
+   * @param {() => boolean} [deps.customCommand]  the active profile names its own command (a wrapper, a pinned install)
    * @param {() => boolean} deps.enabled
    * @param {() => string} [deps.channel]  npm dist-tag to follow: "latest" (default) or "stable"
    * @param {Function} [deps.run]    (file, args, options) => { code, stdout, stderr }; injected by tests
    * @param {Function} [deps.sleep]
    * @param {Function} [deps.exists]
+   * @param {object} [deps.processes]  other running Claude Code processes: { busy(), binsInUse() }
+   * @param {object} [deps.npmCommand]  { file, args, shell } (see npmCommand())
+   * @param {Function} [deps.locked]   (bin) => Promise<boolean>: the executable is still in use
    */
-  constructor({ config, manager, catalog, profileBin, enabled = () => true, channel = () => "latest", run = defaultRun, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms).unref?.()), exists = existsSync }) {
+  constructor({ config, manager, catalog, profileBin, customCommand = () => false, enabled = () => true, channel = () => "latest", run = defaultRun, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms).unref?.()), exists = existsSync, processes = claudeProcesses, npmCommand: npmCmd = npmCommand(), locked: isLocked = locked }) {
     super();
-    Object.assign(this, { config, manager, catalog, profileBin, isEnabled: enabled, channel, run, sleep, exists });
+    Object.assign(this, { config, manager, catalog, profileBin, customCommand, isEnabled: enabled, channel, run, sleep, exists, processes, npmCmd, locked: isLocked });
     this.state = { installed: null, active: null, latest: null, phase: "idle", checkedAt: 0, updatedAt: 0, updatedFrom: null, updatedTo: null, error: null, failedVersion: null, failedAt: 0 };
     this.job = null;
     this.timers = [];
@@ -137,9 +164,20 @@ export class ClaudeUpdater extends EventEmitter {
   }
 
   npm(args, { timeoutMs } = {}) {
-    const windows = process.platform === "win32";
-    // On Windows npm is npm.cmd, which needs a shell; every argument here is a fixed word, a validated version or a quoted path.
-    return this.run(windows ? "npm.cmd" : "npm", args, { timeoutMs, env: process.env, shell: windows });
+    const { file, args: head, shell } = this.npmCmd;
+    if (!shell) return this.run(file, [...head, ...args], { timeoutMs, env: process.env, shell: false });
+    // Through cmd.exe: every argument is a fixed word, a validated version or a path, quoted and checked for what cmd
+    // would expand even inside quotes.
+    if (!args.every((arg) => SHELL_SAFE.test(arg))) return Promise.resolve({ code: 1, stdout: "", stderr: "A path contains characters that cannot be passed to npm safely." });
+    return this.run(file, [...head, ...args.map((arg) => `"${arg}"`)], { timeoutMs, env: process.env, shell: true });
+  }
+
+  /**
+   * Our own copy only stands in for an npm install that the profile finds by itself: not for a wrapper or a pinned
+   * command, and not for a native install (which updates itself).
+   */
+  copyAllowed() {
+    return installOf(this.profileBin())?.kind === "npm" && !this.customCommand();
   }
 
   /** Versions of the profile's install, of what new processes run, and of the newest release. Never throws. */
@@ -170,6 +208,7 @@ export class ClaudeUpdater extends EventEmitter {
     const own = this.profileBin();
     const installed = await this.version(own);
     if (installed) this.state.installed = installed;
+    if (!this.copyAllowed()) { this.state.active = installed; return null; }
     const names = await readdir(this.root).catch(() => []); // none yet
     const best = names.filter((name) => VERSION.test(name)).sort(compareVersions).reverse();
     for (const version of best) {
@@ -177,6 +216,7 @@ export class ClaudeUpdater extends EventEmitter {
       const bin = binIn(join(this.root, version));
       if (this.exists(bin) && (await this.version(bin)) === version) {
         this.activate(version, bin, installed);
+        await this.prune();
         return version;
       }
     }
@@ -203,17 +243,18 @@ export class ClaudeUpdater extends EventEmitter {
     if (!force && this.state.failedVersion === latest && Date.now() - this.state.failedAt < RETRY_AFTER_FAILURE_MS) return this.status();
 
     // Step 1: our own copy, used at once.
-    if (newer(latest, this.state.active)) {
+    if (newer(latest, this.state.active) && this.copyAllowed()) {
       this.state.phase = "downloading";
       const bin = await this.installCopy(latest);
       this.activate(latest, bin, this.state.active);
+      await this.prune(); // older copies nobody runs any more
     }
 
     // Step 2: the profile's install, in a quiet moment.
     const own = this.profileBin();
     const install = installOf(own);
     if (!newer(latest, installed) || install?.kind !== "npm") return this.status();
-    if (!/^[^"%&|<>^\r\n]+$/.test(install.prefix)) return this.status();
+    if (this.npmCmd.shell && !SHELL_SAFE.test(install.prefix)) return this.status();
     this.state.phase = "waiting";
     while (!this.urgent && !this.idle()) {
       if (!force && !this.isEnabled()) return this.status();
@@ -232,7 +273,7 @@ export class ClaudeUpdater extends EventEmitter {
     if (this.exists(bin) && (await this.version(bin)) === version) return bin;
     await rm(dir, { recursive: true, force: true });
     await mkdir(dir, { recursive: true });
-    const result = await this.npm(["install", "--prefix", quote(dir), `${PACKAGE}@${version}`, "--prefer-offline", "--no-audit", "--no-fund", "--loglevel=error"], { timeoutMs: STAGE_TIMEOUT_MS });
+    const result = await this.npm(["install", "--prefix", dir, `${PACKAGE}@${version}`, "--prefer-offline", "--no-audit", "--no-fund", "--loglevel=error"], { timeoutMs: STAGE_TIMEOUT_MS });
     if (result.code !== 0 || (await this.version(bin)) !== version) {
       await rm(dir, { recursive: true, force: true }).catch(() => {});
       Object.assign(this.state, { failedVersion: version, failedAt: Date.now() });
@@ -243,7 +284,7 @@ export class ClaudeUpdater extends EventEmitter {
 
   /** True when nothing is working, waiting for an answer, running background work or was active a moment ago. */
   idle(now = Date.now()) {
-    if (this.catalog?.inflight?.size) return false;
+    if (this.catalog?.inflight?.size || this.processes.busy()) return false;
     for (const session of this.manager.sessions.values()) {
       if (!session.alive) continue;
       if (["running", "starting"].includes(session.state) || session.pending?.size || session.backgroundTasks) return false;
@@ -258,8 +299,9 @@ export class ClaudeUpdater extends EventEmitter {
     try {
       // Only processes that run the profile's executable hold its files; ours (the copy) can keep running. With "now" this
       // also stops sessions that are working on the old version: they continue on the next message.
-      for (const session of this.manager.sessions.values()) if (session.alive && (!session.bin || session.bin === own)) session.close();
-      await this.sleep(1500); // let the processes exit so the files are free
+      const exits = [];
+      for (const session of this.manager.sessions.values()) if (session.alive && (!session.bin || session.bin === own)) exits.push(session.close());
+      await this.released(exits, own);
       const ok = await this.install(install, own, to);
       const now = await this.version(own);
       if (ok && now === to) {
@@ -281,21 +323,31 @@ export class ClaudeUpdater extends EventEmitter {
     }
   }
 
+  /** Wait (at most EXIT_WAIT_MS) until the stopped processes are gone and nothing holds the executable any more. */
+  async released(exits, bin) {
+    const deadline = Date.now() + EXIT_WAIT_MS;
+    await Promise.race([Promise.all(exits), this.sleep(EXIT_WAIT_MS)]);
+    while (Date.now() < deadline && (await this.locked(bin))) await this.sleep(250);
+  }
+
   async install(install, own, version) {
     if (install?.kind === "npm") {
-      const result = await this.npm(["install", "-g", "--prefix", quote(install.prefix), `${PACKAGE}@${version}`, "--prefer-offline", "--no-audit", "--no-fund", "--loglevel=error"], { timeoutMs: SWAP_TIMEOUT_MS });
+      const result = await this.npm(["install", "-g", "--prefix", install.prefix, `${PACKAGE}@${version}`, "--prefer-offline", "--no-audit", "--no-fund", "--loglevel=error"], { timeoutMs: SWAP_TIMEOUT_MS });
       return result.code === 0;
     }
     const result = await this.run(own, ["update"], { timeoutMs: SWAP_TIMEOUT_MS, env: process.env });
     return result.code === 0;
   }
 
-  /** Remove our copies that are not in use. */
+  /** Remove our copies that nothing uses: not the active one, not one a session or another Claude process runs. */
   async prune() {
+    if (this.catalog?.inflight?.size) return; // a model-list process may run any copy; next time
     const names = await readdir(this.root).catch(() => []);
+    const inUse = this.processes.binsInUse();
     for (const name of names) {
+      if (!VERSION.test(name)) continue;
       const bin = binIn(join(this.root, name));
-      const used = [...this.manager.sessions.values()].some((session) => session.alive && session.bin === bin);
+      const used = inUse.has(bin) || [...this.manager.sessions.values()].some((session) => session.alive && session.bin === bin);
       if (!used && this.config.claudeBin !== bin) await rm(join(this.root, name), { recursive: true, force: true }).catch(() => {});
     }
   }

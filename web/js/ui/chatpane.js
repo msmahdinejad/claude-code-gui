@@ -1,5 +1,5 @@
 // Chat pane: timeline + welcome screen + docked requests + suggestion chip + composer host.
-import { h, toast, errorMessage, baseName } from "../core/dom.js";
+import { h, toast, errorMessage, baseName, raf } from "../core/dom.js";
 import { icon } from "../core/icons.js";
 import { t } from "../core/i18n.js";
 import { app, bus, currentConv } from "../core/state.js";
@@ -30,9 +30,10 @@ export function mountChat(chatRoot, dockRoot) {
 
   const requestsHost = h("div.requests");
   const suggestionHost = h("div.suggestion-host");
+  const goalHost = h("div.goal-host");
   const composerHost = h("div.composer-host");
   const quickHost = h("div.quick-start");
-  const inner = h("div.dock-inner", requestsHost, suggestionHost, composerHost, quickHost);
+  const inner = h("div.dock-inner", requestsHost, goalHost, suggestionHost, composerHost, quickHost);
   dockRoot.replaceChildren(inner);
   mountComposer(composerHost);
 
@@ -60,6 +61,43 @@ export function mountChat(chatRoot, dockRoot) {
       showSuggestion
         ? h("button.suggestion-chip", { type: "button", title: t("Use suggested prompt"), onclick: () => bus.emit("composer:fill", conv.suggestion) }, icon("sparkles", 13), h("span", { dir: "auto" }, conv.suggestion))
         : null,
+    );
+    renderGoal(conv);
+  }
+
+  // /goal: the active completion condition, how many turns it has taken and why the last check said "not yet".
+  let shownGoal = null;
+  function renderGoal(conv) {
+    const goal = conv?.goal || null;
+    const key = goal ? `${conv.id}|${goal.condition}|${goal.iterations}|${goal.last_reason || ""}` : null;
+    if (key === shownGoal) return;
+    shownGoal = key;
+    if (!goal) {
+      goalHost.replaceChildren();
+      return;
+    }
+    const clear = h("button.btn.small.ghost", { type: "button", title: t("Stop working toward this goal (/goal clear)") }, icon("x", 12), t("Clear"));
+    clear.onclick = async () => {
+      clear.disabled = true;
+      try {
+        await session.sendMessage("/goal clear");
+      } catch {
+        clear.disabled = false; // sendMessage already showed the error
+      }
+    };
+    goalHost.replaceChildren(
+      h(
+        "div.goal-chip",
+        h("span.goal-icon", icon("circle-dot", 14)),
+        h(
+          "div.goal-text",
+          h("div.goal-line", h("strong", t("Goal")), h("span.goal-condition", { dir: "auto", title: goal.condition }, goal.condition)),
+          goal.iterations || goal.last_reason
+            ? h("div.goal-line.muted", goal.iterations ? h("span", t("{n} turns so far", { n: goal.iterations })) : null, goal.last_reason ? h("span.goal-reason", { dir: "auto", title: goal.last_reason }, goal.last_reason) : null)
+            : null,
+        ),
+        clear,
+      ),
     );
   }
 
@@ -94,11 +132,15 @@ export function mountChat(chatRoot, dockRoot) {
   }
 
   bus.on("current", switchConversation);
+  // conv:update fires for every streamed token: the dock and welcome screen follow at most once per frame.
+  const dockSoon = raf(() => {
+    renderDock();
+    renderWelcome();
+  });
   bus.on("conv:update", (id) => {
     if (id !== app.currentId) return;
     view.sync();
-    renderDock();
-    renderWelcome();
+    dockSoon();
   });
   bus.on("live", (id) => {
     if (id !== app.currentId) return;

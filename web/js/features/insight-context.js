@@ -173,11 +173,27 @@ function sections(data) {
   return out.filter(Boolean);
 }
 
-async function compactNow(ctx) {
+async function compactNow(ctx, instructions = "") {
   const conv = app.convs.get(app.currentId);
   if (conv && isBusy(conv)) return toast(t("Wait for the current response to finish."), "error");
-  await ctx.runPrompt("/compact");
+  // "/compact <instructions>" tells the summary what to keep; the command takes them on one line.
+  const focus = String(instructions).replace(/s+/g, " ").trim();
+  await ctx.runPrompt(focus ? `/compact ${focus}` : "/compact");
   toast(t("Compacting…"), "ok", 1800);
+  return true;
+}
+
+function compactControls(ctx, state) {
+  const input = h("input.input.ctx-focus", { type: "text", dir: "auto", value: state.focus, placeholder: t("Optional: what to keep, e.g. “the API design decisions”"), "aria-label": t("Compact instructions") });
+  input.addEventListener("input", () => { state.focus = input.value; });
+  const run = async () => { if (await compactNow(ctx, state.focus)) { state.focus = ""; input.value = ""; } };
+  input.addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.isComposing) { event.preventDefault(); run(); } });
+  return h(
+    "div.panel-section",
+    h("h4", t("Actions")),
+    h("div.row-inline.ctx-compact", input, btn(t("Compact now"), run, { iconName: "layers", title: "/compact" })),
+    h("div.row-inline", btn(t("Clear (new session)"), () => ctx.session.newSession({}), { iconName: "plus" })),
+  );
 }
 
 function autoCompactControls(ctx, data) {
@@ -210,6 +226,7 @@ registerInspectorTab({
     let loading = false;
     let error = null;
     let alive = true;
+    const compactState = { focus: "" };
 
     async function load(start) {
       loading = true;
@@ -243,7 +260,7 @@ registerInspectorTab({
         h("div.seg", h(`button${mode === "bar" ? ".active" : ""}`, { type: "button", onclick: () => { mode = "bar"; paint(); } }, t("Bar")), h(`button${mode === "grid" ? ".active" : ""}`, { type: "button", onclick: () => { mode = "grid"; paint(); } }, t("Grid"))),
         mode === "bar" ? stackedBar(data) : grid(data),
         legend(data),
-        h("div.panel-section", h("h4", t("Actions")), h("div.row-inline", btn(t("Compact now"), () => compactNow(ctx), { iconName: "layers", title: "/compact" }), btn(t("Clear (new session)"), () => ctx.session.newSession({}), { iconName: "plus" }))),
+        compactControls(ctx, compactState),
         autoCompactControls(ctx, data),
         h("div.panel-section", h("h4", t("Details")), ...sections(data)),
       );

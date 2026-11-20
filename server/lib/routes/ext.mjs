@@ -1,17 +1,64 @@
 // Routes for the Extensions feature: MCP config files, plugins (via the claude CLI) and
 // resource listings (skills / commands / agents) with parsed frontmatter.
 import { readFile } from "node:fs/promises";
+import { MASK, maskArgs, maskMap, redactUrl } from "../redact.mjs";
 
-const SECRET_KEYS = /(key|token|secret|password|authorization|auth|cookie)/i;
-
-function maskMap(map) {
-  if (!map || typeof map !== "object") return map;
-  return Object.fromEntries(Object.entries(map).map(([key, value]) => [key, SECRET_KEYS.test(key) ? "••••••" : value]));
+/** A server definition as the browser may see it: secrets in env, headers, args and the URL replaced by MASK. */
+function maskServer(server) {
+  if (!server || typeof server !== "object" || Array.isArray(server)) return server;
+  const out = { ...server };
+  if (server.env) out.env = maskMap(server.env);
+  if (server.headers) out.headers = maskMap(server.headers);
+  if (server.args) out.args = maskArgs(server.args);
+  if (typeof server.url === "string") out.url = redactUrl(server.url, MASK);
+  return out;
 }
 
-function maskServer(server) {
-  if (!server || typeof server !== "object") return server;
-  return { ...server, env: maskMap(server.env), headers: maskMap(server.headers) };
+const isObject = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+const maskServers = (servers) => (isObject(servers) ? Object.fromEntries(Object.entries(servers).map(([name, server]) => [name, maskServer(server)])) : {});
+const maskMcpFile = (json) => (isObject(json) && isObject(json.mcpServers) ? { ...json, mcpServers: maskServers(json.mcpServers) } : json);
+
+/** Pairs of [original, masked] strings found by walking a value and its masked copy side by side. */
+function maskedPairs(original, masked, out = []) {
+  if (typeof original === "string") {
+    if (original !== masked) out.push([original, masked]);
+  } else if (original && typeof original === "object" && masked && typeof masked === "object") {
+    for (const key of Object.keys(original)) maskedPairs(original[key], masked[key], out);
+  }
+  return out;
+}
+
+/** The .mcp.json text for the editor with its secrets masked, keeping the file's own layout where possible. */
+export function maskMcpText(text, json) {
+  const masked = maskMcpFile(json);
+  const pairs = maskedPairs(json, masked);
+  if (!pairs.length) return text;
+  let out = text;
+  for (const [original, hidden] of pairs) out = out.split(JSON.stringify(original)).join(JSON.stringify(hidden));
+  try {
+    if (JSON.stringify(JSON.parse(out)) === JSON.stringify(masked)) return out;
+  } catch { /* re-serialize below */ }
+  return `${JSON.stringify(masked, null, 2)}\n`;
+}
+
+/** Put the real values back where the edited text still holds a masked one (same place, or an unambiguous match). */
+export function restoreMasked(edited, original) {
+  const masked = maskMcpFile(original);
+  const byMask = new Map();
+  for (const [real, hidden] of maskedPairs(original, masked)) byMask.set(hidden, byMask.has(hidden) && byMask.get(hidden) !== real ? null : real);
+  const own = (obj, key) => (isObject(obj) && Object.hasOwn(obj, key) ? obj[key] : undefined);
+  const walk = (value, real, hidden) => {
+    if (typeof value === "string") {
+      if (typeof real === "string" && value === hidden && real !== hidden) return real;
+      if (!value.includes(MASK)) return value;
+      if (byMask.get(value)) return byMask.get(value);
+      throw new Error(`Replace the hidden value "${value}" with the real one (or leave that entry unchanged).`);
+    }
+    if (Array.isArray(value)) return value.map((item, i) => walk(item, Array.isArray(real) ? real[i] : undefined, Array.isArray(hidden) ? hidden[i] : undefined));
+    if (isObject(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, walk(item, own(real, key), own(hidden, key))]));
+    return value;
+  };
+  return walk(edited, original, masked);
 }
 
 async function readJson(path) {
@@ -43,11 +90,13 @@ export default function register({ route, cfiles, fsgit, runClaudeCli, HttpError
     const userFile = await readJson(join(cfiles.configDir(), ".claude.json"));
     const userServers = userFile.json?.mcpServers || {};
     const localServers = userFile.json?.projects?.[cwd]?.mcpServers || userFile.json?.projects?.[cwd.replaceAll("\\", "/")]?.mcpServers || {};
-    const mask = (servers) => Object.fromEntries(Object.entries(servers).map(([name, server]) => [name, maskServer(server)]));
+    const raw = project.exists ? await readFile(projectPath, "utf8").catch(() => "") : '{\n  "mcpServers": {}\n}\n';
+    // Text that does not parse cannot be masked value by value: the editor then starts empty rather than show secrets.
+    const text = !project.exists ? raw : project.json ? maskMcpText(raw, project.json) : "";
     return {
-      project: { path: projectPath, exists: project.exists, error: project.error, servers: project.json?.mcpServers || {}, text: project.exists ? await readFile(projectPath, "utf8").catch(() => "") : '{\n  "mcpServers": {}\n}\n' },
-      user: { path: join(cfiles.configDir(), ".claude.json"), servers: mask(userServers) },
-      local: { servers: mask(localServers) },
+      project: { path: projectPath, exists: project.exists, error: project.error, servers: maskServers(project.json?.mcpServers), text, masked: text !== raw },
+      user: { path: join(cfiles.configDir(), ".claude.json"), servers: maskServers(userServers) },
+      local: { servers: maskServers(localServers) },
     };
   });
 
@@ -63,6 +112,13 @@ export default function register({ route, cfiles, fsgit, runClaudeCli, HttpError
       throw new HttpError(400, 'Expected an object like {"mcpServers": {...}}');
     }
     if (!parsed.mcpServers) parsed.mcpServers = {};
+    // The editor showed secrets masked: write the real values back wherever they were left as they were.
+    const current = await readJson(join(cwd, ".mcp.json"));
+    try {
+      parsed = restoreMasked(parsed, current.json);
+    } catch (error) {
+      throw new HttpError(400, error.message);
+    }
     return fsgit.writeTextFile(join(cwd, ".mcp.json"), `${JSON.stringify(parsed, null, 2)}\n`, { backup: false });
   });
 

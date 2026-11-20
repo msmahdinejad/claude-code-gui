@@ -186,23 +186,36 @@ export class ClaudeSession extends EventEmitter {
     const options = this.buildOptions();
     this.bin = options.pathToClaudeCodeExecutable || null; // which Claude Code this process runs (updates switch it)
     try {
-      this.query = sdkQuery({ prompt: this.input, options });
+      this.query = this.manager.createQuery({ prompt: this.input, options });
     } catch (error) {
       this.query = null;
       this.startError = error.message;
       this.setState("closed");
       throw error;
     }
-    this.pump(this.query).catch(() => {});
+    // A restart (or close) can replace this.query while we wait below: everything after the await is about `q` only.
+    const q = this.query;
+    let exited;
+    this.exited = new Promise((resolve) => { exited = resolve; });
+    this.pump(q).catch(() => {}).finally(exited);
+    let initResult;
     try {
-      this.initResult = await withTimeout(this.query.initializationResult(), 120_000, "initialize timed out");
-      this.setState(this.state === "starting" ? "idle" : this.state);
+      initResult = await withTimeout(q.initializationResult(), 120_000, "initialize timed out");
     } catch (error) {
+      if (this.query !== q) return this.superseded();
       this.startError = error.message;
       this.emitMessage({ type: "wh_error", where: "start", message: error.message, stderr: this.stderr.slice(-20) });
       this.close();
       throw error;
     }
+    if (this.query !== q) return this.superseded();
+    this.initResult = initResult;
+    this.setState(this.state === "starting" ? "idle" : this.state);
+  }
+
+  /** start() lost its process to a restart (fine: the new one is starting) or to close() (the caller learns it). */
+  superseded() {
+    if (!this.query) throw new Error("the session was closed while it was starting");
   }
 
   async pump(q) {
@@ -262,8 +275,10 @@ export class ClaudeSession extends EventEmitter {
     this.emitMessage(msg);
   }
 
+  /** Stop the process. Resolves once its message stream has ended (the caller may cap the wait). */
   close() {
     const q = this.query;
+    const exited = q ? this.exited || Promise.resolve() : Promise.resolve();
     this.query = null;
     const input = this.input;
     this.input = null;
@@ -272,6 +287,14 @@ export class ClaudeSession extends EventEmitter {
     try { input?.close(); } catch { /* already closed */ }
     try { q?.close(); } catch { /* already closed */ }
     this.setState("closed");
+    return exited;
+  }
+
+  /** The server forgets this session object (deleted, profile switched): attached streams must let go of it. */
+  detach() {
+    const exited = this.close();
+    this.emit("detached");
+    return exited;
   }
 
   async restart(patch = {}) {
@@ -287,12 +310,34 @@ export class ClaudeSession extends EventEmitter {
 
   async sendUser({ text = "", images = [], priority, uuid } = {}) {
     await this.ensureStarted();
+    const MAX_PDF_BYTES = 10 * 1024 * 1024;
+    const MAX_TEXT_BYTES = 500 * 1024;
     const content = [];
-    for (const image of images) {
-      content.push({ type: "image", source: { type: "base64", media_type: image.mediaType, data: image.data } });
+    // `images` carries every attachment: pictures become image blocks, PDFs document blocks, anything else (text and
+    // code files) a text block that names the file. Sizes are checked here as well, the page's limits are advisory.
+    const shown = []; // pictures the page can draw as thumbnails
+    const named = []; // other files, listed by name in the transcript bubble
+    for (const item of images) {
+      const mediaType = String(item.mediaType || "");
+      const name = String(item.name || "file").replace(/[\r\n"]+/g, " ");
+      if (mediaType.startsWith("image/")) {
+        content.push({ type: "image", source: { type: "base64", media_type: mediaType, data: item.data } });
+        shown.push(item);
+      } else if (mediaType === "application/pdf") {
+        if (Buffer.byteLength(String(item.data || ""), "base64") > MAX_PDF_BYTES) throw new Error(`${name} is too large (PDF: max 10 MB)`);
+        content.push({ type: "document", title: name, source: { type: "base64", media_type: "application/pdf", data: item.data } });
+        named.push(name);
+      } else {
+        const bytes = Buffer.from(String(item.data || ""), "base64");
+        if (bytes.length > MAX_TEXT_BYTES) throw new Error(`${name} is too large (text: max 500 KB)`);
+        content.push({ type: "text", text: `<file name="${name}">\n${bytes.toString("utf8")}\n</file>` });
+        named.push(name);
+      }
     }
     if (text) content.push({ type: "text", text });
     if (!content.length) throw new Error("empty message");
+    // What the page shows for this message: the typed text plus one [name] line per attached file.
+    const shownText = named.length ? [text, ...named.map((name) => `[${name}]`)].filter(Boolean).join("\n\n") : text;
     const messageUuid = uuid || randomUUID();
     const message = {
       type: "user",
@@ -300,15 +345,15 @@ export class ClaudeSession extends EventEmitter {
       session_id: this.id,
       parent_tool_use_id: null,
       origin: { kind: "human" },
-      message: { role: "user", content: content.length === 1 && content[0].type === "text" ? text : content },
+      message: { role: "user", content: content.length === 1 && content[0].type === "text" && !named.length ? text : content },
       ...(priority ? { priority } : {}),
     };
     this.lastActive = Date.now();
     this.emitMessage({
       type: "wh_user_message",
       uuid: messageUuid,
-      text,
-      images: images.map((image) => ({ mediaType: image.mediaType, name: image.name, data: image.data })),
+      text: shownText,
+      images: shown.map((image) => ({ mediaType: image.mediaType, name: image.name, data: image.data })),
       priority: priority || null,
       at: Date.now(),
     });
@@ -484,10 +529,11 @@ function withTimeout(promise, ms, message) {
 
 export class SessionManager extends EventEmitter {
   /** `prefs` returns the UI-owned preferences (the Settings toggles that the server must know about). */
-  constructor(config, { prefs = () => ({}) } = {}) {
+  constructor(config, { prefs = () => ({}), query = sdkQuery } = {}) {
     super();
     this.config = config;
     this.prefs = prefs;
+    this.createQuery = query; // the SDK's query(); tests pass a fake
     this.sessions = new Map();
     this.gate = null;
     this.reaper = setInterval(() => this.reapIdle(), 60_000);
@@ -541,8 +587,15 @@ export class SessionManager extends EventEmitter {
 
   /** Stop every Claude process but keep the manager running (used when switching profiles). */
   closeSessions() {
-    for (const session of this.sessions.values()) session.close();
+    for (const session of this.sessions.values()) session.detach();
     this.sessions.clear();
+  }
+
+  /** Stop and forget one session (deleted). */
+  remove(id) {
+    const session = this.sessions.get(id);
+    this.sessions.delete(id);
+    return session ? session.detach() : Promise.resolve();
   }
 
   closeAll() {

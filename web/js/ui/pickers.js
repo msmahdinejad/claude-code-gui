@@ -161,8 +161,50 @@ export function openModelPicker(anchor) {
     input.addEventListener("change", () => session.setThinking(input.checked));
     body.append(h("label.switch", { style: { padding: "6px 10px" } }, input, h("span", t("Extended thinking"))));
   }
+  appendSpeedOptions(body, state, info);
   const pop = popover(anchor, body, { placement: "top-start", width: 340, className: "model-popover" });
   return pop;
+}
+
+// ---- fast mode / ultracode / advisor ------------------------------------------------
+// Session settings of Claude Code, set through applyFlagSettings (see session.setFlagSettings). Each row appears only
+// when this session can use it: fast mode when the model supports it, ultracode when the session has the Workflow
+// tool, the advisor when there is a model list to pick from.
+function appendSpeedOptions(body, state, info) {
+  const id = app.currentId;
+  const settings = (() => { const value = session.effectiveMeta(id).settings; return value && typeof value === "object" ? value : {}; })();
+  const rows = [];
+
+  if (info?.supportsFastMode === true) {
+    const fastState = app.live.get(id)?.init?.fast_mode_state ?? app.catalog?.fastMode?.state;
+    const reason = app.catalog?.fastMode?.disabledReason;
+    const on = settings.fastMode ?? fastState === "on";
+    // "sdk_opt_in_required" is what turning fast mode on from here answers, so it must not block the switch
+    const blocked = Boolean(reason) && !on && !["sdk_opt_in_required", "pending"].includes(reason);
+    const input = h("input", { type: "checkbox", checked: on, disabled: blocked });
+    input.addEventListener("change", async () => { if (!(await session.setFlagSettings({ fastMode: input.checked }))) input.checked = !input.checked; });
+    rows.push(
+      h("label.switch.speed-row", input, h("span.pi-main", h("span", t("Fast mode")), h("span.pi-desc", blocked ? t("Not available right now ({reason}).", { reason }) : fastState === "cooldown" ? t("Paused after a rate limit; it resumes by itself.") : t("Faster output on this model.")))),
+    );
+  }
+
+  const tools = app.live.get(id)?.init?.tools;
+  if (Array.isArray(tools) && tools.some((tool) => (tool?.name || tool) === "Workflow")) {
+    const input = h("input", { type: "checkbox", checked: settings.ultracode === true });
+    input.addEventListener("change", async () => { if (!(await session.setFlagSettings({ ultracode: input.checked }))) input.checked = !input.checked; });
+    rows.push(h("label.switch.speed-row", input, h("span.pi-main", h("span", t("Ultracode")), h("span.pi-desc", t("Plans and runs larger work as workflows, at any effort level.")))));
+  }
+
+  const choices = allModels().filter((model) => model.value !== "default");
+  if (choices.length) {
+    const select = h("select.input.speed-select", { "aria-label": t("Advisor model") }, h("option", { value: "" }, t("Off")), ...choices.map((model) => h("option", { value: model.value, selected: settings.advisorModel === model.value }, t(model.displayName))));
+    if (settings.advisorModel && !choices.some((model) => model.value === settings.advisorModel)) select.append(h("option", { value: settings.advisorModel, selected: true }, settings.advisorModel));
+    select.addEventListener("change", () => session.setFlagSettings({ advisorModel: select.value || null }));
+    rows.push(h("label.speed-row.advisor", h("span.pi-main", h("span", t("Advisor model")), h("span.pi-desc", t("A second model Claude can consult on hard decisions."))), select));
+  }
+
+  if (!rows.length) return;
+  body.append(h("div.picker-section", t("Speed and extras")), ...rows, h("div.pi-note", t("These use more of your plan or budget: fast mode costs more per token, ultracode and the advisor add model calls.")));
 }
 
 export function openModePicker(anchor) {

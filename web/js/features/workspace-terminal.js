@@ -3,7 +3,7 @@
 import { h, ibtn, toast, errorMessage, copyText, baseName, shortPath } from "../core/dom.js";
 import { icon } from "../core/icons.js";
 import { t } from "../core/i18n.js";
-import { bus } from "../core/state.js";
+import { app, bus } from "../core/state.js";
 import { api } from "../core/api.js";
 import { registerInspectorTab, registerCommand } from "../core/registry.js";
 import { AnsiView, cwdNow } from "./workspace-common.js";
@@ -36,9 +36,40 @@ function createTab() {
   const root = h("div.term-out", { dir: "ltr", role: "log", "aria-live": "off", tabindex: "0" });
   const tab = { id, title: `${t("Terminal")} ${counter}`, cwd: cwdNow(), running: false, root, view: new AnsiView(root, { maxLines: 5000 }), source: null, lastCommand: "", transcript: "", exit: null, histIndex: -1, draft: "", seq: 0 };
   tabs.push(tab);
-  connect(tab);
   activeId = id;
+  syncStreams();
   return tab;
+}
+
+// Browsers allow ~6 connections per host and the app already holds several SSE streams, so a terminal
+// tab only keeps its stream open while it is the visible tab. Hidden tabs that are running are polled
+// for their state; when a tab becomes visible again its stream resumes after tab.seq (server replay).
+let pollTimer = null;
+
+function syncStreams() {
+  for (const tab of tabs) {
+    const want = Boolean(ui) && tab.id === activeId;
+    if (want && !tab.source) connect(tab);
+    else if (!want && tab.source) { tab.source.close(); tab.source = null; }
+  }
+  const needPoll = tabs.some((tab) => tab.running && !tab.source);
+  if (needPoll && !pollTimer) pollTimer = setInterval(pollHidden, 2500);
+  else if (!needPoll && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+async function pollHidden() {
+  let changed = false;
+  for (const tab of tabs.filter((entry) => entry.running && !entry.source)) {
+    try {
+      const state = await api.get(`/api/term/${tab.id}/state`);
+      if (tab.source || state.running) continue;
+      tab.running = false;
+      tab.exit = state.lastExit || null;
+      if (state.cwd) tab.cwd = state.cwd;
+      changed = true;
+    } catch { /* server restarting: try again */ }
+  }
+  if (changed) { refreshUi(); bus.emit("conv:update", app.currentId); syncStreams(); }
 }
 
 function connect(tab) {
@@ -125,6 +156,7 @@ function closeTab(id) {
   if (index < 0) return;
   const [tab] = tabs.splice(index, 1);
   tab.source?.close();
+  tab.source = null;
   api.post("/api/term/close", { id }).catch(() => {});
   if (!tabs.length) createTab();
   else if (activeId === id) activeId = tabs[Math.max(0, index - 1)].id;
@@ -175,6 +207,7 @@ function mountActive() {
   if (!ui) return;
   const tab = activeTab();
   ui.host.replaceChildren(tab.root);
+  syncStreams();
   refreshUi();
   requestAnimationFrame(() => { tab.root.scrollTop = tab.root.scrollHeight; });
 }
@@ -229,7 +262,7 @@ function render(container) {
   for (const tab of tabs) if (!tab.lastCommand && !tab.running) tab.cwd = cwdNow();
   refreshUi();
   setTimeout(() => !input.disabled && input.focus(), 50);
-  return () => { ui = null; };
+  return () => { ui = null; syncStreams(); };
 }
 
 registerInspectorTab({ id: "terminal", title: "Terminal", icon: "terminal", order: 30, render, badge: () => (tabs.some((tab) => tab.running) ? "●" : "") });

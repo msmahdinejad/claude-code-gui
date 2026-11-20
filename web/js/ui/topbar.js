@@ -35,7 +35,9 @@ export function mountTopbar(root) {
     }
   }
 
+  let renders = 0; // a render that waited for git info is dropped when a newer one started meanwhile
   async function render() {
+    const token = ++renders;
     const conv = currentConv();
     const id = app.currentId;
     const listed = app.sessions.find((entry) => entry.id === id);
@@ -45,13 +47,15 @@ export function mountTopbar(root) {
     // total_cost_usd is cumulative per claude process: add only the increase (a restart resets it).
     let cost = 0;
     let previous = 0;
-    for (const item of conv ? conv.items.filter((entry) => entry.kind === "result") : []) {
+    for (const item of conv?.items || []) {
+      if (item.kind !== "result") continue;
       const value = item.cost || 0;
       cost += value >= previous ? value - previous : value;
       previous = value;
     }
     const percent = app.contextUsage?.sessionId === id ? app.contextUsage.percentage : null;
     const branch = await branchFor(cwd);
+    if (token !== renders) return;
     const git = gitCache.get(cwd);
     title.replaceChildren(
       h("button", { type: "button", title: t("Rename"), onclick: () => id && promptRename(id) }, h("strong", { dir: "auto" }, name)),
@@ -73,7 +77,17 @@ export function mountTopbar(root) {
   }
 
   for (const event of ["current", "sessions", "meta", "layout", "live", "catalog"]) bus.on(event, render);
-  bus.on("conv:update", (id) => id === app.currentId && render());
+  // conv:update fires for every streamed token: render at most once per frame (or every 250 ms while hidden,
+  // when animation frames do not run).
+  let queued = false;
+  const soon = () => {
+    if (queued) return;
+    queued = true;
+    const run = () => { queued = false; render(); };
+    if (document.hidden) setTimeout(run, 250);
+    else requestAnimationFrame(run);
+  };
+  bus.on("conv:update", (id) => id === app.currentId && soon());
   bus.on("context:usage", render);
   render();
 }

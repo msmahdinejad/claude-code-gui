@@ -4,10 +4,13 @@ import { icon } from "../core/icons.js";
 import { t } from "../core/i18n.js";
 import { app, bus } from "../core/state.js";
 import { renderMarkdown, wireMarkdownActions } from "./markdown.js";
-import { ToolCard, taskMeta } from "./tools.js";
+import { ToolCard, filePath, taskMeta } from "./tools.js";
+import "./lightbox.js";
 import { isBusy } from "./reducer.js";
 import { isAuthProblem, openLoginDialog } from "../ui/login-dialog.js";
 import { describeApiFailure, failureAdvice, seconds } from "./api-errors.js";
+
+const MARKDOWN_EVERY = 100;
 
 const signInButton = () => h("button.btn.small", { type: "button", onclick: () => openLoginDialog() }, icon("unlock", 13), t("Sign in"));
 
@@ -82,6 +85,7 @@ export class ChatView {
     this.conv = conv;
     for (const node of this.nodes.values()) node.el.remove();
     this.nodes.clear();
+    this.evicted = conv.evicted || 0;
     this.cards.clear();
     const position = this.positions.get(conv.id);
     this.stick = !position || position.stick; // flush() must not jump to the end for a reader who was higher up
@@ -119,8 +123,19 @@ export class ChatView {
   flush() {
     const conv = this.conv;
     if (!conv) return;
+    if (this.evicted !== (conv.evicted || 0)) {
+      // Items taken out of the timeline (a retracted refusal) leave their nodes behind: drop those.
+      this.evicted = conv.evicted || 0;
+      for (const [key, node] of this.nodes) {
+        if (conv.byKey.has(key)) continue;
+        node.el.remove();
+        this.nodes.delete(key);
+      }
+    }
     let previous = null;
-    for (const item of conv.items) {
+    const items = conv.items;
+    for (let index = 0; index < items.length; index += 1) {
+      const item = items[index];
       let node = this.nodes.get(item.key);
       if (!node) {
         node = { el: h(`article.msg.msg-${item.kind}`), v: 0, state: {} };
@@ -131,7 +146,7 @@ export class ChatView {
         this.renderItem(node, item, conv);
         node.v = item.v;
       }
-      const next = conv.items[conv.items.indexOf(item) + 1];
+      const next = items[index + 1];
       const lastOfTurn = !next || next.kind === "user";
       if (item.kind === "assistant" && node.lastOfTurn !== lastOfTurn) {
         node.lastOfTurn = lastOfTurn;
@@ -187,7 +202,7 @@ export class ChatView {
         return h(
           "button.bg-work-row",
           { type: "button", title: t("Show"), onclick: () => show(task) },
-          icon(agent ? "bot" : "terminal", 13),
+          icon(agent ? "bot" : task.taskType === "local_workflow" || tool?.name === "Workflow" ? "layers" : "terminal", 13),
           h("span.grow", { dir: "auto" }, h("strong", what || t("Background task")), now ? h("span.muted", ` — ${now}`) : null),
           taskMeta(task) ? h("span.muted.small", taskMeta(task)) : null,
         );
@@ -283,9 +298,22 @@ export class ChatView {
     const el = entry.el;
     if (block.type === "text") {
       if (entry.last !== block.text) {
-        el.innerHTML = renderMarkdown(block.text);
-        el.classList.add("markdown");
-        entry.last = block.text;
+        // While a reply streams its markdown is parsed again at most every MARKDOWN_EVERY ms (the whole text is
+        // re-parsed each time); the final text is always rendered at once.
+        const wait = block.streaming ? MARKDOWN_EVERY - (performance.now() - (entry.renderedAt || 0)) : 0;
+        if (wait > 0) {
+          entry.timer ??= setTimeout(() => {
+            entry.timer = null;
+            if (el.isConnected) this.renderBlock(entry, block, item, conv);
+          }, wait);
+        } else {
+          clearTimeout(entry.timer);
+          entry.timer = null;
+          el.innerHTML = renderMarkdown(block.text);
+          el.classList.add("markdown");
+          entry.last = block.text;
+          entry.renderedAt = performance.now();
+        }
       }
       el.classList.toggle("caret", Boolean(block.streaming));
     } else if (block.type === "thinking") {
@@ -373,7 +401,15 @@ export class ChatView {
     const box = h(
       `div.banner.${kind}`,
       icon(kind === "error" ? "alert" : kind === "warn" ? "alert" : "info", 14),
-      h("div.banner-text", h("span", { dir: "auto" }, t(item.text)), item.detail ? h("details", h("summary", t("Details")), h("pre", String(item.detail))) : null),
+      h(
+        "div.banner-text",
+        h("span", { dir: "auto" }, t(item.text, item.params)),
+        item.memories?.length ? memoryList(item.memories) : null,
+        item.detail ? h("details", h("summary", t("Details")), h("pre", { dir: "auto" }, String(item.detail))) : null,
+      ),
+      item.retryText
+        ? h("button.btn.small", { type: "button", title: t("Put the refused message back in the composer"), onclick: () => bus.emit("composer:fill", item.retryText) }, icon("edit", 13), t("Edit and retry"))
+        : null,
     );
     node.el.replaceChildren(box);
   }
@@ -395,6 +431,26 @@ export class ChatView {
     if (bits.length) children.push(h("div.turn-meta", bits.map((bit) => h("bdi", bit))));
     node.el.replaceChildren(...children);
   }
+}
+
+/** Memories a turn recalled: file-backed ones open in the file viewer, the others show their text. */
+function memoryList(memories) {
+  return h(
+    "details.memory-recall",
+    h("summary", t("Show memories")),
+    h(
+      "ul",
+      memories.map((memory) => {
+        const onDisk = memory.path && !/^(<synthesis:|https?:)/.test(memory.path);
+        return h(
+          "li",
+          onDisk ? filePath(memory.path) : memory.path && /^https?:/.test(memory.path) ? h("a", { href: memory.path, target: "_blank", rel: "noreferrer noopener", dir: "ltr" }, memory.path) : null,
+          memory.scope && memory.scope !== "personal" ? h("span.badge", memory.scope === "team" ? t("Team") : t("Organization")) : null,
+          memory.content ? h("div.muted.pre", { dir: "auto" }, memory.content) : null,
+        );
+      }),
+    ),
+  );
 }
 
 function describeAssistantError(error) {

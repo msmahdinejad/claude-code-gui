@@ -114,21 +114,28 @@ export function scopedPage(el, { title, lead, scopes = SCOPES, render, remember 
     );
   };
 
+  // A newer reload (e.g. a quick scope switch) makes older, slower responses stale: they must not render.
+  let seq = 0;
   async function reload() {
+    const token = ++seq;
+    const scopeId = state.scope; // edits from this render always go to the scope it was loaded for
     body.replaceChildren(h("div.muted", t("Loading…")));
     try {
-      const file = await loadScope(state.scope);
-      const info = scopes.find((scope) => scope.id === state.scope);
+      const file = await loadScope(scopeId);
+      if (token !== seq) return;
+      const info = scopes.find((scope) => scope.id === scopeId);
       pathLabel.textContent = file.path;
       hint.textContent = `${info.hint()}${file.exists ? "" : ` — ${t("file does not exist yet; it is created on first save")}`}`;
       const context = {
-        scope: state.scope,
+        scope: scopeId,
         file,
         json: file.json,
         path: file.path,
         reload,
+        /** false once a newer reload started; renders that await more data should check it before appending. */
+        isCurrent: () => token === seq,
         edit: async (mutate, options) => {
-          const result = await safeEdit(state.scope, mutate, options);
+          const result = await safeEdit(scopeId, mutate, options);
           if (result) await reload();
           return result;
         },
@@ -140,7 +147,7 @@ export function scopedPage(el, { title, lead, scopes = SCOPES, render, remember 
       }
       await render(body, context);
     } catch (error) {
-      body.replaceChildren(h("div.banner.error", icon("alert", 14), errorMessage(error)));
+      if (token === seq) body.replaceChildren(h("div.banner.error", icon("alert", 14), errorMessage(error)));
     }
   }
 
@@ -154,11 +161,16 @@ export function group(title, ...children) {
 }
 
 export function settingRow(title, desc, control) {
+  // Controls sit apart from the visible title, so give unnamed form fields the row title as their accessible name.
+  if (control instanceof Element && typeof title === "string" && title) {
+    const fields = control.matches("input, select, textarea") ? [control] : [...control.querySelectorAll("input, select, textarea")];
+    if (fields.length === 1 && !fields[0].hasAttribute("aria-label")) fields[0].setAttribute("aria-label", title);
+  }
   return h("div.setting-row", h("div.grow", h("strong", title), desc ? h("small", desc) : null), control);
 }
 
-export function toggleControl(checked, onChange) {
-  const input = h("input", { type: "checkbox", checked: Boolean(checked) });
+export function toggleControl(checked, onChange, { label = "" } = {}) {
+  const input = h("input", { type: "checkbox", checked: Boolean(checked), "aria-label": label || null });
   input.addEventListener("change", () => onChange(input.checked));
   return h("label.switch", input);
 }
@@ -171,8 +183,12 @@ export function selectControl(value, options, onChange, { cls = "" } = {}) {
 
 export function textControl(value, onCommit, { placeholder = "", type = "text", dir = "ltr", width = 220 } = {}) {
   const input = h("input.input", { type, value: value ?? "", placeholder, dir, spellcheck: "false", style: { width: `${width}px`, minWidth: "120px" } });
+  // Compare with the last committed value, not the initial one, so clearing a value committed earlier still commits.
+  let committed = String(value ?? "");
   const commit = () => {
-    if (input.value !== String(value ?? "")) onCommit(input.value);
+    if (input.value === committed) return;
+    committed = input.value;
+    onCommit(input.value);
   };
   input.addEventListener("change", commit);
   input.addEventListener("keydown", (event) => event.key === "Enter" && (event.preventDefault(), commit()));

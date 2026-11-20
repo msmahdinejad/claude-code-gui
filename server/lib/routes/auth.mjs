@@ -1,12 +1,12 @@
 // Sign a connection profile in from the UI (the CLI's `auth login`), for when the OAuth session has expired.
-import { profileEnv, resolveCommand } from "../config.mjs";
+import { hasProfile, profileEnv, resolveCommand } from "../config.mjs";
 import { LoginFlows } from "../login.mjs";
 
 export default function register({ route, config, catalog, HttpError }) {
   const flows = new LoginFlows({
     resolve(name) {
+      if (!hasProfile(config, name)) return { problem: `Unknown profile: ${name}` };
       const profile = config.profiles[name];
-      if (!profile) return { problem: `Unknown profile: ${name}` };
       const env = profileEnv(config, name);
       const executable = resolveCommand(profile.command, env);
       return executable.problem ? { problem: executable.problem } : { path: executable.path, env };

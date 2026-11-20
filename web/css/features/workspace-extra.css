@@ -1,0 +1,66 @@
+/* Changes panel extras: push/pull, PR card, stashes, worktrees; Context "compact with instructions";
+   Settings → Diagnostics. Logical properties only (RTL + LTR). */
+
+/* push / pull buttons in the Changes head */
+.ws-sync { gap: 4px; padding-inline: 8px; }
+.ws-sync .spinner { margin: 0; }
+
+/* dialogs */
+.ws-dialog { display: flex; flex-direction: column; gap: 10px; }
+.ws-dialog p { margin: 0; }
+.ws-dialog .small { font-size: .82em; }
+.ws-cmd-preview { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; padding: 6px 10px; border-radius: var(--radius-sm); background: var(--code-bg); font-size: .85em; }
+.ws-cmd-preview code { font-family: var(--font-mono); color: var(--code-text); overflow-wrap: anywhere; }
+.ws-radio { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+.ws-radio > span { display: flex; flex-direction: column; gap: 2px; }
+.ws-radio input { margin-block-start: 3px; }
+
+/* pull request card */
+.ws-changes-wrap { display: flex; flex-direction: column; gap: 8px; }
+.ws-pr { margin: 4px 10px 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2); display: flex; flex-direction: column; gap: 6px; }
+.ws-pr.compact { padding-block: 4px; }
+.ws-pr-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ws-pr-head > .icon { color: var(--text-3); flex: none; }
+.ws-pr-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-weight: 600; text-decoration: none; }
+.ws-pr-title:hover { text-decoration: underline; }
+.ws-pr-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: .85em; color: var(--text-2); }
+.ws-pr-meta a.btn { text-decoration: none; }
+.ws-pr-note { font-size: .85em; color: var(--text-2); white-space: pre-wrap; }
+.ws-pr-checks summary { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; cursor: pointer; font-size: .85em; list-style-position: inside; }
+.ws-pr-checklist { display: flex; flex-direction: column; gap: 3px; padding-block-start: 6px; padding-inline-start: 4px; max-height: 220px; overflow: auto; }
+.ws-check { display: inline-flex; align-items: center; gap: 4px; font-size: .85em; }
+.ws-check.pass { color: var(--ok); }
+.ws-check.fail { color: var(--danger); }
+.ws-check.pending { color: var(--warn); }
+.ws-check a, .ws-check span { color: var(--text-2); }
+
+/* stashes / worktrees */
+.ws-row.stash, .ws-row.ws-wt { cursor: default; }
+.ws-wt .ws-name { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.ws-note { margin: 10px 14px; font-size: .82em; }
+
+/* Context → compact with instructions */
+.ctx-compact { flex-wrap: wrap; }
+.ctx-focus { flex: 1 1 220px; min-width: 0; }
+
+/* Settings → Diagnostics */
+.diag-fact { display: grid; grid-template-columns: minmax(120px, 30%) 1fr auto; align-items: center; gap: 10px; padding: 5px 0; border-block-end: 1px solid var(--line); font-size: .9em; }
+.diag-fact:last-child { border-block-end: 0; }
+.diag-label { color: var(--text-2); }
+.diag-value { min-width: 0; overflow-wrap: anywhere; }
+code.diag-value { font-family: var(--font-mono); font-size: .9em; text-align: start; }
+.diag-bar { display: flex; justify-content: flex-end; margin-block-end: 6px; }
+.diag-check { padding: 8px 0; border-block-end: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+.diag-check:last-child { border-block-end: 0; }
+.diag-check-head { display: flex; align-items: center; gap: 10px; }
+.diag-check-head .grow { display: flex; flex-direction: column; min-width: 0; }
+.diag-cmd { font-family: var(--font-mono); font-size: .8em; color: var(--text-3); white-space: nowrap; }
+.diag-ok { color: var(--ok); }
+.diag-bad { color: var(--danger); }
+.diag-out { margin: 0; max-height: 320px; overflow: auto; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--code-bg); color: var(--code-text); font-family: var(--font-mono); font-size: .8em; white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; }
+.diag-out-meta { display: flex; align-items: center; gap: 8px; font-size: .8em; margin-block-start: 4px; }
+@media (max-width: 640px) {
+  .diag-fact { grid-template-columns: 1fr auto; }
+  .diag-label { grid-column: 1 / -1; }
+  .diag-cmd { display: none; }
+}

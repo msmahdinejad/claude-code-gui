@@ -112,18 +112,45 @@ export function errorMessage(error) {
 
 // ---- modal ---------------------------------------------------------------------
 const modalStack = [];
+const FOCUSABLE = 'a[href], button:not(:disabled), input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
+
 export function modal({ title, body, actions = [], width = 560, onClose, className = "" }) {
+  const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const close = () => {
     const index = modalStack.indexOf(api);
     if (index >= 0) modalStack.splice(index, 1);
+    const wasOpen = backdrop.isConnected;
     backdrop.remove();
     document.removeEventListener("keydown", onKey, true);
     onClose?.();
+    // Back to what had the focus before (unless a following dialog or the close handler already moved it elsewhere).
+    if (wasOpen && opener?.isConnected && (!document.activeElement || document.activeElement === document.body)) opener.focus?.();
   };
   const onKey = (event) => {
-    if (event.key === "Escape" && modalStack.at(-1) === api) {
+    if (modalStack.at(-1) !== api) return;
+    if (event.key === "Escape") {
       event.stopPropagation();
       close();
+    } else if (event.key === "Tab") {
+      // Keep Tab inside the dialog: wrap from the last control to the first and back.
+      const items = [...panel.querySelectorAll(FOCUSABLE)].filter((el) => el.offsetParent !== null || el === document.activeElement);
+      if (!items.length) {
+        event.preventDefault();
+        return;
+      }
+      const first = items[0];
+      const last = items.at(-1);
+      const active = document.activeElement;
+      if (!panel.contains(active)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
     }
   };
   const panel = h(
@@ -201,7 +228,7 @@ export function closePopover() {
 }
 
 /** Anchor a floating panel to an element. Returns {close, el}. */
-export function popover(anchor, content, { placement = "bottom-start", width, className = "", onClose, offset = 6 } = {}) {
+export function popover(anchor, content, { placement = "bottom-start", width, className = "", onClose, offset = 6, focus = true } = {}) {
   closePopover();
   const el = h(`div.popover.${className}`, { role: "dialog" }, content);
   if (width) el.style.width = typeof width === "number" ? `${width}px` : width;
@@ -213,16 +240,16 @@ export function popover(anchor, content, { placement = "bottom-start", width, cl
     let top = placement.startsWith("top") ? rect.top - box.height - offset : rect.bottom + offset;
     if (top + box.height > innerHeight - 8) top = Math.max(8, rect.top - box.height - offset);
     if (top < 8) top = 8;
-    let left;
-    if (placement.endsWith("end")) left = rect.right - box.width;
-    else left = rect.left;
-    if (placement.endsWith("start") && rtl) left = rect.right - box.width;
+    // "start"/"end" follow the reading direction: in RTL the start edge is the right one.
+    const alignRight = placement.endsWith("end") ? !rtl : placement.endsWith("start") && rtl;
+    let left = alignRight ? rect.right - box.width : rect.left;
     left = Math.min(Math.max(8, left), innerWidth - box.width - 8);
     el.style.top = `${top}px`;
     el.style.left = `${left}px`;
   };
   place();
   requestAnimationFrame(place);
+  if (focus) (el.querySelector("[autofocus]") || el.querySelector(FOCUSABLE))?.focus({ preventScroll: true });
   const outside = (event) => {
     if (!el.contains(event.target) && !anchor.contains(event.target)) api.close();
   };
@@ -285,6 +312,16 @@ export function menu(anchor, items, options = {}) {
       ),
     );
   }
+  list.addEventListener("keydown", (event) => {
+    const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
+    if (!keys.includes(event.key)) return;
+    const entries = [...list.querySelectorAll(".menu-item:not(:disabled)")];
+    if (!entries.length) return;
+    event.preventDefault();
+    const at = entries.indexOf(document.activeElement);
+    const next = event.key === "Home" ? 0 : event.key === "End" ? entries.length - 1 : event.key === "ArrowDown" ? (at + 1) % entries.length : (at <= 0 ? entries.length - 1 : at - 1);
+    entries[next].focus();
+  });
   pop = popover(anchor, list, { className: "menu-popover", ...options });
   return pop;
 }
@@ -313,7 +350,7 @@ export function formatTime(ms) {
 }
 
 export function faDigits(value) {
-  return String(value).replace(/d/g, (digit) => "۰۱۲۳۴۵۶۷۸۹"[digit]);
+  return String(value).replace(/\d/g, (digit) => "۰۱۲۳۴۵۶۷۸۹"[digit]);
 }
 
 export function formatNumber(n) {

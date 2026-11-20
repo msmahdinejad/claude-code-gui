@@ -1,0 +1,45 @@
+/* Conversation extras: tool-result pictures + lightbox, goal chip, findings, memory recall, busy request cards. */
+
+/* pictures a tool returned */
+.result-thumbs { margin: 4px 0 8px; }
+.thumb-omitted { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px dashed var(--line-strong); border-radius: var(--radius); font-size: .8em; color: var(--text-3); }
+
+.lightbox { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 32px 16px; background: var(--scrim); backdrop-filter: blur(2px); cursor: zoom-out; }
+.lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: var(--radius); box-shadow: var(--shadow-lg); background: var(--surface); cursor: default; }
+.lightbox-close { position: absolute; inset-block-start: 12px; inset-inline-end: 12px; background: var(--surface); box-shadow: var(--shadow-md); }
+
+/* /goal chip above the composer */
+.goal-host:empty { display: none; }
+.goal-chip { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--surface); font-size: .85em; min-width: 0; }
+.goal-icon { display: inline-flex; color: var(--accent); flex: none; }
+.goal-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.goal-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.goal-line strong { flex: none; }
+.goal-condition, .goal-reason { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.goal-line.muted { color: var(--text-3); font-size: .92em; }
+.goal-line.muted > span:first-child { flex: none; }
+.goal-chip .btn { flex: none; }
+.goal-condition { unicode-bidi: plaintext; }
+
+/* ProposeGoal card */
+.tool .goal-condition { white-space: pre-wrap; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--surface-2); margin-block-end: 6px; }
+
+/* ReportFindings */
+.findings { margin: 0; padding-inline-start: 22px; display: flex; flex-direction: column; gap: 10px; }
+.finding-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.finding-head .finding-fix { margin-inline-start: auto; }
+.finding-summary { margin-block-start: 4px; font-weight: 500; }
+.finding-scenario { margin-block-start: 2px; font-size: .88em; }
+.badge.ok { color: var(--ok); background: var(--ok-soft); }
+
+/* Artifact listing */
+.artifact-list { margin: 6px 0 0; padding-inline-start: 20px; display: flex; flex-direction: column; gap: 3px; }
+
+/* memory recall notice */
+.memory-recall ul { margin: 6px 0 0; padding-inline-start: 18px; display: flex; flex-direction: column; gap: 6px; }
+.memory-recall .pre { white-space: pre-wrap; max-height: 160px; overflow: auto; font-size: .9em; }
+.banner > .btn { flex: none; margin-inline-start: auto; align-self: center; }
+
+/* a request card whose answer is on its way */
+.request.sending { opacity: .7; }
+.request.sending .req-actions { pointer-events: none; }

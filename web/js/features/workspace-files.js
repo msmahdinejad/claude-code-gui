@@ -181,10 +181,13 @@ async function leaveFile() {
 async function save({ force = false } = {}) {
   const file = F.file;
   if (!file || !file.edit || !file.info?.inside) return;
+  // The draft is the source of truth: the editor element may have been re-created by a re-render.
+  const content = file.draft ?? file.content;
   try {
-    await wsPost("/api/ws/fs/write", { path: file.rel, content: els.editor.value, expectedMtime: force ? undefined : file.info.mtime });
-    file.content = els.editor.value;
-    file.dirty = false;
+    await wsPost("/api/ws/fs/write", { path: file.rel, content, expectedMtime: force ? undefined : file.info.mtime });
+    file.content = content;
+    if (file.draft === content) { file.draft = undefined; file.dirty = false; }
+    else file.dirty = file.draft !== undefined && file.draft !== file.content;
     const fresh = await wsGet("/api/ws/fs/read", { path: file.rel });
     file.info = fresh;
     toast(t("Saved"), "ok", 1500);
@@ -197,6 +200,14 @@ async function save({ force = false } = {}) {
       if (overwrite) save({ force: true });
     } else toast(errorMessage(error), "error");
   }
+}
+
+async function toggleEdit(file) {
+  if (file.edit && file.dirty && !(await confirmDialog({ title: t("Discard unsaved changes?"), message: t("Your edits will be lost."), confirmLabel: t("Discard"), danger: true }))) return;
+  if (F.file !== file) return;
+  if (file.edit) { file.draft = undefined; file.dirty = false; }
+  file.edit = !file.edit;
+  drawFile();
 }
 
 function addToChat(file) {
@@ -227,7 +238,7 @@ function drawFile() {
     file.info && file.info.kind === "text"
       ? [
           file.mdPreview !== undefined && !file.edit ? segmented([[true, t("Preview")], [false, t("Source")]], file.mdPreview, (v) => { file.mdPreview = v; drawFile(); }) : null,
-          !file.readOnly ? h(`button.btn.small${file.edit ? ".primary" : ""}`, { type: "button", onclick: () => { file.edit = !file.edit; if (!file.edit && file.dirty) { file.dirty = false; } drawFile(); } }, icon("edit", 13), file.edit ? t("Editing") : t("Edit")) : null,
+          !file.readOnly ? h(`button.btn.small${file.edit ? ".primary" : ""}`, { type: "button", onclick: () => toggleEdit(file) }, icon("edit", 13), file.edit ? t("Editing") : t("Edit")) : null,
           file.edit ? h("button.btn.small.primary", { type: "button", disabled: !file.dirty, onclick: () => save() }, icon("check", 13), t("Save")) : null,
         ]
       : null,
@@ -250,8 +261,12 @@ function drawFile() {
   }
   if (file.edit) {
     const editor = h("textarea.input.editor.ws-editor", { spellcheck: "false", dir: "ltr", wrap: "off" });
-    editor.value = file.content;
-    editor.addEventListener("input", () => { file.dirty = editor.value !== file.content; drawFileDirty(); });
+    editor.value = file.draft ?? file.content;
+    editor.addEventListener("input", () => {
+      file.draft = editor.value;
+      file.dirty = editor.value !== file.content;
+      drawFileDirty();
+    });
     editor.addEventListener("keydown", (event) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") { event.preventDefault(); save(); }
       if (event.key === "Tab" && !event.shiftKey) {
@@ -261,9 +276,18 @@ function drawFile() {
         editor.dispatchEvent(new Event("input"));
       }
     });
+    const remember = () => { file.sel = [editor.selectionStart, editor.selectionEnd, editor.scrollTop]; };
+    editor.addEventListener("select", remember);
+    editor.addEventListener("keyup", remember);
+    editor.addEventListener("mouseup", remember);
+    editor.addEventListener("scroll", remember, { passive: true });
     els.editor = editor;
     els.file.append(editor);
-    queueMicrotask(() => editor.focus());
+    drawFileDirty();
+    queueMicrotask(() => {
+      editor.focus();
+      if (file.sel) { editor.setSelectionRange(file.sel[0], file.sel[1]); editor.scrollTop = file.sel[2]; }
+    });
     return;
   }
   if (file.mdPreview) {
@@ -287,12 +311,11 @@ function drawFile() {
 }
 
 function drawFileDirty() {
-  const save = els.file.querySelector(".btn.primary[disabled], .btn.primary");
+  if (!els || !F.file) return;
   const buttons = [...els.file.querySelectorAll(".ws-file-head .btn")];
   const saveBtn = buttons.find((b) => b.textContent.trim() === t("Save"));
   if (saveBtn) saveBtn.disabled = !F.file.dirty;
   els.file.querySelector(".ws-file-title strong")?.classList.toggle("dirty", Boolean(F.file.dirty));
-  void save;
 }
 
 // ---- panel -----------------------------------------------------------------------------

@@ -22,7 +22,11 @@
 .tabs-inline { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
 .tabs-inline button { padding: 6px 12px; font-size: .86em; color: var(--text-2); border-bottom: 2px solid transparent; }
 .tabs-inline button.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
-.editor { font-family: var(--font-mono); font-size: .85em; line-height: 1.55; min-height: 280px; direction: ltr; text-align: left; }
+.editor { font-family: var(--font-mono); font-size: .85em; line-height: 1.55; min-height: 280px; }
+/* Code/JSON editors are always LTR; markdown editors (dir="auto": CLAUDE.md, rules, styles) follow their text,
+   paragraph by paragraph, so Persian is laid out right-to-left. */
+.editor:not([dir="auto"]) { direction: ltr; text-align: left; }
+.editor[dir="auto"] { unicode-bidi: plaintext; text-align: start; }
 
 /* Settings dialog */
 .settings { display: flex; height: min(720px, calc(100vh - 80px)); }

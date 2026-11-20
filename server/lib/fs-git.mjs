@@ -3,11 +3,13 @@
 // whitelisted paths (CLAUDE.md, settings files).
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { readdir, readFile, stat, writeFile, mkdir, copyFile } from "node:fs/promises";
+import { readdir, readFile, stat, writeFile, mkdir, copyFile, open } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 const run = promisify(execFile);
 const MAX_READ = 2 * 1024 * 1024;
+const MAX_READ_CAP = 8 * 1024 * 1024; // hard upper bound for any caller-supplied `max`
+const MAX_IMAGE = 15 * 1024 * 1024;
 const SKIP_DIRS = new Set([".git", "node_modules", ".next", "dist", "build", "__pycache__", ".venv", "venv", ".cache", "target"]);
 
 const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".avif", ".svg"]);
@@ -28,24 +30,42 @@ export async function listDir(dir) {
   return out;
 }
 
+/** Read at most `max` bytes from the start of a file (never the whole file when it is larger). */
+async function readHead(path, max) {
+  const handle = await open(path, "r");
+  try {
+    const buffer = Buffer.alloc(max);
+    let filled = 0;
+    while (filled < max) {
+      const { bytesRead } = await handle.read(buffer, filled, max - filled, filled);
+      if (!bytesRead) break;
+      filled += bytesRead;
+    }
+    return buffer.subarray(0, filled);
+  } finally {
+    await handle.close();
+  }
+}
+
 export async function readTextFile(path, { max = MAX_READ } = {}) {
   const info = await stat(path);
   if (!info.isFile()) throw new Error("not a file");
+  const limit = Math.min(Math.max(Math.floor(Number(max)) || MAX_READ, 1), MAX_READ_CAP);
   const ext = extname(path).toLowerCase();
   if (IMAGE_EXT.has(ext) && ext !== ".svg") {
+    if (info.size > MAX_IMAGE) return { path, size: info.size, kind: "binary" };
     return { path, size: info.size, kind: "image", mime: `image/${ext.slice(1) === "jpg" ? "jpeg" : ext.slice(1)}`, base64: (await readFile(path)).toString("base64") };
   }
-  const buffer = await readFile(path);
+  const buffer = await readHead(path, Math.min(limit, info.size));
   const sample = buffer.subarray(0, 4096);
   if (sample.includes(0)) return { path, size: info.size, kind: "binary" };
-  const truncated = buffer.length > max;
   return {
     path,
     size: info.size,
     mtime: info.mtimeMs,
     kind: "text",
-    truncated,
-    content: buffer.subarray(0, max).toString("utf8"),
+    truncated: info.size > limit,
+    content: buffer.toString("utf8"),
   };
 }
 
@@ -66,8 +86,9 @@ export async function writeTextFile(path, content, { backup = true } = {}) {
 export async function searchFiles(cwd, query, limit = 40) {
   let files;
   try {
-    const { stdout } = await run("git", ["ls-files", "--cached", "--others", "--exclude-standard"], { cwd, maxBuffer: 16 * 1024 * 1024, windowsHide: true });
-    files = stdout.split(/\r?\n/).filter(Boolean);
+    // -z: raw (unquoted, UTF-8) names, so non-ASCII paths are not returned as "\330\263…" escapes.
+    const { stdout } = await run("git", ["-c", "core.quotepath=false", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd, maxBuffer: 16 * 1024 * 1024, windowsHide: true, encoding: "utf8" });
+    files = [...new Set(stdout.split("\0").filter(Boolean))];
   } catch {
     files = await walk(cwd, 6000);
   }
@@ -119,8 +140,35 @@ async function walk(root, max) {
 }
 
 async function git(cwd, args, opts = {}) {
-  const { stdout } = await run("git", args, { cwd, maxBuffer: 32 * 1024 * 1024, windowsHide: true, ...opts });
+  const { stdout } = await run("git", ["-c", "core.quotepath=false", "-c", "color.ui=never", ...args], { cwd, maxBuffer: 32 * 1024 * 1024, windowsHide: true, encoding: "utf8", ...opts });
   return stdout;
+}
+
+class GitArgError extends Error {
+  constructor(message) {
+    super(message);
+    this.status = 400;
+  }
+}
+
+/**
+ * A branch / ref name as accepted by `git check-ref-format --allow-onelevel`, minus anything that
+ * could be read as an option ("-x") or a pathspec ("." / "..").
+ */
+export function checkRefName(name) {
+  const value = String(name ?? "").trim();
+  const bad = !value
+    || value.startsWith("-")
+    || value === "@"
+    || /[\x00-\x20\x7f~^:?*[\\]/.test(value)
+    || value.includes("..")
+    || value.includes("@{")
+    || value.includes("//")
+    || value.endsWith("/")
+    || value.endsWith(".")
+    || value.split("/").some((part) => !part || part.startsWith(".") || part.endsWith(".lock"));
+  if (bad) throw new GitArgError("invalid branch name");
+  return value;
 }
 
 export async function gitInfo(cwd) {
@@ -147,64 +195,5 @@ export async function gitInfo(cwd) {
     return { isRepo: true, root, branch, files, ahead, behind };
   } catch (error) {
     return { isRepo: false, error: String(error.message || error).split("\n")[0] };
-  }
-}
-
-export async function gitDiff(cwd, { path, staged = false, base } = {}) {
-  const args = ["diff", "--no-color", "--no-ext-diff", "-U4"];
-  if (staged) args.push("--cached");
-  if (base) args.push(base);
-  if (path) args.push("--", path);
-  let diff = await git(cwd, args);
-  if (path && !diff) {
-    // Untracked file: synthesize an all-added diff.
-    try {
-      const info = await readTextFile(resolve(cwd, path), { max: 400_000 });
-      if (info.kind === "text") {
-        const lines = info.content.split("\n");
-        diff = `--- /dev/null\n+++ b/${path}\n@@ -0,0 +1,${lines.length} @@\n${lines.map((line) => `+${line}`).join("\n")}\n`;
-      }
-    } catch { /* ignore */ }
-  }
-  return { diff };
-}
-
-export async function gitLog(cwd, limit = 30) {
-  const out = await git(cwd, ["log", `-${limit}`, "--pretty=format:%H%x1f%an%x1f%ad%x1f%s", "--date=iso-strict"]);
-  return out.split("\n").filter(Boolean).map((line) => {
-    const [hash, author, date, subject] = line.split("\x1f");
-    return { hash, author, date, subject };
-  });
-}
-
-export async function gitBranches(cwd) {
-  const out = await git(cwd, ["branch", "--format=%(refname:short)%1f%(HEAD)"]);
-  return out.split("\n").filter(Boolean).map((line) => {
-    const [name, head] = line.split("\x1f");
-    return { name, current: head === "*" };
-  });
-}
-
-export async function gitAction(cwd, action, args = {}) {
-  switch (action) {
-    case "stage":
-      await git(cwd, ["add", "--", ...args.paths]);
-      return { ok: true };
-    case "unstage":
-      await git(cwd, ["restore", "--staged", "--", ...args.paths]);
-      return { ok: true };
-    case "commit": {
-      if (!args.message?.trim()) throw new Error("commit message required");
-      const out = await git(cwd, ["commit", "-m", args.message]);
-      return { ok: true, output: out };
-    }
-    case "checkout":
-      await git(cwd, ["checkout", args.branch]);
-      return { ok: true };
-    case "createBranch":
-      await git(cwd, ["checkout", "-b", args.branch]);
-      return { ok: true };
-    default:
-      throw new Error(`unknown git action: ${action}`);
   }
 }

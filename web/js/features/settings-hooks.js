@@ -68,6 +68,7 @@ registerSettingsSection({
         refreshEffective(effective);
       },
     });
+    el.append(effective);
   },
 });
 
@@ -148,12 +149,17 @@ function templatesGroup(edit) {
   );
 }
 
+// Each scope render triggers a refresh; a newer call makes the results of older, slower ones stale.
+const effectiveGen = new WeakMap();
+
 async function refreshEffective(box) {
-  box.querySelectorAll(":scope > :not(h3)").forEach((node) => node.remove());
+  const gen = (effectiveGen.get(box) || 0) + 1;
+  effectiveGen.set(box, gen);
+  const files = await Promise.all(SCOPES.map((scope) => loadScope(scope.id).then((file) => ({ scope, file }), () => null)));
+  if (effectiveGen.get(box) !== gen) return;
   const rows = [];
-  for (const scope of SCOPES) {
+  for (const { scope, file } of files.filter(Boolean)) {
     try {
-      const file = await loadScope(scope.id);
       const hooks = getIn(file.json || {}, "hooks", {});
       for (const [event, matchers] of Object.entries(hooks)) {
         for (const entry of matchers) {
@@ -164,5 +170,6 @@ async function refreshEffective(box) {
       }
     } catch { /* ignore unreadable scope */ }
   }
+  box.querySelectorAll(":scope > :not(h3)").forEach((node) => node.remove());
   box.append(rows.length ? h("div.rule-list", rows) : h("div.muted", t("No hooks are configured in any scope.")));
 }

@@ -28,6 +28,11 @@ export function effective(id = app.currentId) {
   };
 }
 
+/** The session's options as the server sees them (live meta wins over the conversation's). */
+export function effectiveMeta(id = app.currentId) {
+  return { ...(app.convs.get(id)?.meta || {}), ...(app.live.get(id)?.meta || {}) };
+}
+
 export async function loadConfig() {
   app.config = await api.config();
   return app.config;
@@ -152,6 +157,7 @@ export async function loadConversation(id, cwd) {
 }
 
 export async function openSession(id, { cwd } = {}) {
+  const previous = { id: app.currentId, cwd: app.currentCwd };
   app.currentId = id;
   if (cwd) app.currentCwd = cwd;
   let conv = app.convs.get(id);
@@ -161,10 +167,15 @@ export async function openSession(id, { cwd } = {}) {
       conv = await loadConversation(id, cwd || sessionCwd(id));
     } catch (error) {
       toast(errorMessage(error), "error");
+      if (app.currentId === id) { // still the one we tried: go back to what was shown before
+        app.currentId = previous.id;
+        app.currentCwd = previous.cwd;
+      }
       bus.emit("loading", false);
       return null;
     }
     bus.emit("loading", false);
+    if (app.currentId !== id) return conv; // the user chose another conversation while this one loaded
   }
   app.currentCwd = conv.cwd || cwd || app.currentCwd;
   location.hash = `#/s/${id}`;
@@ -245,8 +256,10 @@ export async function respondRequest(requestId, answer) {
   const id = app.currentId;
   try {
     await api.respond(id, requestId, answer);
+    return true;
   } catch (error) {
     toast(errorMessage(error), "error");
+    return false; // the card unlocks so the answer can be retried
   }
 }
 
@@ -259,7 +272,7 @@ async function liveControl(op, args, persist) {
     await api.patchMeta(id, persist);
     const conv = app.convs.get(id);
     if (conv) Object.assign(conv.meta, persist);
-    if (live) Object.assign(live.meta, persist);
+    if (live?.meta) Object.assign(live.meta, persist);
     bus.emit("meta", id);
   } catch (error) {
     toast(errorMessage(error), "error");
@@ -270,6 +283,32 @@ export const setModel = (model) => liveControl("setModel", { model }, { model })
 export const setEffort = (effort) => liveControl("setEffort", { effort }, { effort: effort || null });
 export const setPermissionMode = (mode) => liveControl("setPermissionMode", { mode }, { permissionMode: mode });
 
+/**
+ * Session-scoped Claude Code settings (fastMode, ultracode, advisorModel...): applied to the running process with
+ * applyFlagSettings and kept in meta.settings, which the server passes as `settings` when the process (re)starts.
+ * A null value clears the key.
+ */
+export async function setFlagSettings(settings) {
+  const id = app.currentId;
+  if (!id) return false;
+  try {
+    if (app.live.get(id)?.alive) await api.control(id, "applyFlagSettings", { settings });
+    const base = effectiveMeta(id).settings;
+    const merged = { ...(base && typeof base === "object" ? base : {}), ...settings };
+    for (const key of Object.keys(merged)) if (merged[key] === null) delete merged[key];
+    await api.patchMeta(id, { settings: merged });
+    const conv = app.convs.get(id);
+    if (conv) conv.meta.settings = merged;
+    const liveMeta = app.live.get(id)?.meta;
+    if (liveMeta) liveMeta.settings = merged;
+    bus.emit("meta", id);
+    return true;
+  } catch (error) {
+    toast(errorMessage(error), "error");
+    return false;
+  }
+}
+
 export async function setThinking(enabled) {
   const id = app.currentId;
   if (!id) return;
@@ -278,6 +317,8 @@ export async function setThinking(enabled) {
     await api.patchMeta(id, { thinkingEnabled: enabled });
     const conv = app.convs.get(id);
     if (conv) conv.meta.thinkingEnabled = enabled;
+    const liveMeta = app.live.get(id)?.meta; // effective() lets live meta win over the conversation's
+    if (liveMeta) liveMeta.thinkingEnabled = enabled;
     bus.emit("meta", id);
   } catch (error) {
     toast(errorMessage(error), "error");
@@ -294,6 +335,8 @@ export async function applyStartOptions(patch) {
     else await api.patchMeta(id, patch);
     const conv = app.convs.get(id);
     if (conv) Object.assign(conv.meta, patch);
+    const liveMeta = app.live.get(id)?.meta;
+    if (liveMeta) Object.assign(liveMeta, patch);
     toast(t("Applied. It takes effect for the next message."), "ok");
     bus.emit("meta", id);
   } catch (error) {
@@ -313,6 +356,23 @@ export async function promptRename(id) {
   const current = app.sessions.find((session) => session.id === id)?.title || app.convs.get(id)?.title || "";
   const title = await promptDialog({ title: t("Rename session"), value: current, label: t("Title") });
   if (title?.trim()) await renameSession(id, title.trim());
+}
+
+/** A session carries at most one tag (the SDK's tagSession); null clears it. */
+export async function tagSession(id, tag) {
+  const value = String(tag ?? "").trim().slice(0, 40) || null;
+  try {
+    await api.post(`/api/sessions/${id}/tag`, { tag: value, cwd: sessionCwd(id) });
+    await refreshSessions();
+  } catch (error) {
+    toast(errorMessage(error), "error");
+  }
+}
+
+export async function promptTag(id) {
+  const current = app.sessions.find((session) => session.id === id)?.tag || "";
+  const tag = await promptDialog({ title: t("Session tag"), label: t("Tag (empty removes it)"), value: current, placeholder: t("e.g. billing, review") });
+  if (tag !== null && tag.trim() !== current) await tagSession(id, tag);
 }
 
 export async function pinSession(id, pinned) {

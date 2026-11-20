@@ -28,6 +28,10 @@ const BUILTIN_DESC = {
   Proactive: () => t("Takes initiative and keeps going without waiting for confirmation."),
 };
 
+// live.init.output_style is only what the session started with (applyFlagSettings does not update it),
+// so remember what was picked here per session and prefer it.
+const chosen = new Map(); // sessionId -> style name
+
 registerSettingsSection({
   id: "output-styles",
   title: "Output styles",
@@ -53,8 +57,9 @@ registerSettingsSection({
       const styles = (catalog?.availableOutputStyles || []).map((entry) => (typeof entry === "string" ? { name: entry } : { name: entry.name || entry.id || String(entry), description: entry.description }));
       if (!styles.some((style) => style.name === "default")) styles.unshift({ name: "default" });
       const live = app.live.get(app.currentId);
-      const current = live?.init?.output_style || catalog?.outputStyle || "default";
       const saved = await persisted();
+      const savedEffective = saved.local || saved.project || saved.user || "";
+      const current = chosen.get(app.currentId) || (live?.alive ? live?.init?.output_style : "") || savedEffective || live?.init?.output_style || catalog?.outputStyle || "default";
       const scopeSelect = h("select.input", ["user", "local", "project"].map((scope) => h("option", { value: scope }, scope === "user" ? t("User") : scope === "local" ? t("Local") : t("Project"))));
       scopeSelect.value = saved.local ? "local" : saved.project ? "project" : "user";
       const rows = styles.map((style) => {
@@ -81,6 +86,7 @@ registerSettingsSection({
       try {
         await editScope(scope, (draft) => setIn(draft, "outputStyle", name === "default" ? undefined : name), { quiet: true });
         if (app.live.get(app.currentId)?.alive) await api.control(app.currentId, "applyFlagSettings", { settings: { outputStyle: name } }).catch(() => {});
+        if (app.currentId) chosen.set(app.currentId, name);
         toast(t("Output style set to {name}", { name }), "ok", 1800);
         await session.ensureCatalog(app.currentCwd, true);
         await draw();

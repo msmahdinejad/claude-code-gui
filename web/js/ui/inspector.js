@@ -10,13 +10,19 @@ let root;
 let tabsEl;
 let bodyEl;
 let rendered = null; // { id, cleanup }
+let renderedFor = null; // conversation the panel was last built for
 
 export function mountInspector(host) {
   root = host;
   tabsEl = h("div.insp-tabs");
   bodyEl = h("div.insp-body");
   root.replaceChildren(tabsEl, bodyEl);
-  bus.on("current", () => document.body.classList.contains("inspector-open") && renderBody(true));
+  // Only a real conversation switch rebuilds the panel; a re-announced "current" (rename, reload) must keep its state.
+  bus.on("current", () => {
+    const changed = renderedFor !== app.currentId;
+    renderedFor = app.currentId;
+    if (changed && document.body.classList.contains("inspector-open")) renderBody(true);
+  });
   bus.on("insp:refresh", () => document.body.classList.contains("inspector-open") && renderBody(true));
   bus.on("conv:update", (id) => {
     if (id === app.currentId) renderTabs();
@@ -90,4 +96,5 @@ function renderBody(force = false) {
     container.append(h("div.banner.error", String(error.message || error)));
   }
   rendered = { id: tab.id, cleanup };
+  renderedFor = app.currentId;
 }

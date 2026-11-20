@@ -1,0 +1,15 @@
+/* Composer file chips, sidebar tags/sort, and the model picker's speed options. Logical properties only. */
+.cmp-attach.file { display: flex; align-items: center; gap: 6px; max-inline-size: 220px; min-block-size: 56px; padding-block: 0; padding-inline: 10px 26px; background: var(--surface-3); color: var(--text-2); font-size: .82em; }
+.cmp-attach.file svg { flex: none; color: var(--text-3); }
+.cmp-attach.file .cmp-file-name { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmp-attach.file .cmp-file-size { flex: none; color: var(--text-3); font-size: .9em; }
+
+.sb-tag { flex: none; max-inline-size: 7em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 6px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); font-size: .7em; line-height: 1.7; }
+.sb-filters .grow { flex: 1; }
+.sb-filters .chip { display: inline-flex; align-items: center; gap: 4px; max-inline-size: 11em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.model-popover .speed-row { display: flex; align-items: center; gap: 10px; padding: 6px 10px; }
+.model-popover .speed-row .pi-main { display: flex; flex-direction: column; flex: 1; min-inline-size: 0; }
+.model-popover .speed-row .pi-desc { font-size: .78em; color: var(--text-3); white-space: normal; }
+.model-popover .speed-select { inline-size: 9.5em; flex: none; }
+.model-popover .pi-note { padding: 4px 10px 8px; font-size: .74em; color: var(--text-3); }

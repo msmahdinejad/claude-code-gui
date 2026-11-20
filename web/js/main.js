@@ -48,7 +48,7 @@ async function loadFeatures() {
       await import(path);
     } catch (error) {
       console.error(`[feature] ${path} failed to load`, error);
-      toast(`Feature ${path.split("/").pop()} failed: ${errorMessage(error)}`, "error", 8000);
+      toast(t("Feature {name} failed: {error}", { name: path.split("/").pop(), error: errorMessage(error) }), "error", 8000);
     }
   }
 }
@@ -80,7 +80,7 @@ async function boot() {
     await session.loadConfig();
     applyServerDefaults(app.config.defaults);
   } catch (error) {
-    document.body.textContent = `Cannot reach the Wheelhouse server: ${errorMessage(error)}`;
+    document.body.textContent = `${t("Cannot reach the Wheelhouse server")}: ${errorMessage(error)}`;
     return;
   }
   mountSidebar($("#sidebar"));

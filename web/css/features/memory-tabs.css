@@ -1,0 +1,36 @@
+/* Settings → Memory: tabs for CLAUDE.md, rules and auto memory. */
+.mem-tabs { margin-block: 4px 14px; }
+.mem-tabs button { display: inline-flex; align-items: center; gap: 6px; }
+.mem-tab { display: flex; flex-direction: column; gap: 12px; }
+.mem-notes { display: flex; flex-direction: column; gap: 6px; }
+.mem-notes:empty { display: none; }
+.mem-chip { display: inline-block; margin-inline-end: 6px; padding: 0 6px; border-radius: 6px; background: var(--surface-3); font-family: var(--font-mono); font-size: .9em; }
+.mem-dir { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-block-end: 8px; }
+.mem-via { display: block; margin-block-end: 8px; }
+.mem-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-block-start: 3px; }
+.mem-title-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.mem-desc { font-size: .85em; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mem-scope-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-block-end: 8px; }
+.mem-target-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-block: 6px; }
+.mem-editor-host { display: flex; flex-direction: column; gap: 10px; }
+.mem-editor-host:empty { display: none; }
+.mem-topic { display: flex; flex-direction: column; gap: 10px; }
+.mem-fields { display: grid; grid-template-columns: 2fr 1fr; gap: 0 12px; }
+.mem-fields .mem-wide { grid-column: 1 / -1; }
+.mem-fields .field { margin-block-end: 6px; }
+@media (max-width: 640px) { .mem-fields { grid-template-columns: 1fr; } }
+
+.mem-type.t-user { background: var(--info-soft); color: var(--info); }
+.mem-type.t-feedback { background: var(--warn-soft); color: var(--warn); }
+.mem-type.t-project { background: var(--accent-soft); color: var(--accent); }
+.mem-type.t-reference { background: var(--ok-soft); color: var(--ok); }
+
+.mem-meter { flex: none; inline-size: 90px; block-size: 6px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
+.mem-meter > span { display: block; block-size: 100%; background: var(--ok); }
+.mem-meter > span.near { background: var(--warn); }
+.mem-meter > span.over { background: var(--danger); }
+
+/* panels.css forces .editor to LTR; memory files are often Persian, so let each paragraph pick
+   its own direction from its text (and start-align accordingly) inside this page only. */
+.mem-page textarea.editor { direction: inherit; unicode-bidi: plaintext; text-align: start; }
+.mem-page .list-row.selected { border-color: var(--accent); background: var(--accent-soft); }

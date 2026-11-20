@@ -37,14 +37,37 @@ export function describeSuggestion(update) {
   }
 }
 
-export function renderRequest(request, { respond, conv, toolCard }) {
+/** Disable (or enable again) every control of a card while its answer is on the way. */
+function setSending(card, sending) {
+  if (!card) return;
+  card.classList.toggle("sending", sending);
+  card.querySelectorAll("button, input, textarea, select").forEach((el) => { el.disabled = sending; });
+  if (!sending) card.validate?.(); // a card can keep some controls disabled (an unanswered question)
+}
+
+export function renderRequest(request, { respond, toolCard }) {
+  let card = null;
+  // One answer per request: a second click while the first is on its way would only get "no longer pending".
+  const send = async (id, answer) => {
+    if (!card || card.classList.contains("sending")) return;
+    setSending(card, true);
+    let ok = true;
+    try {
+      ok = (await respond(id, answer)) !== false;
+    } catch {
+      ok = false;
+    }
+    if (!ok) setSending(card, false);
+    // The card goes away when the request resolves; one still shown after a while was not resolved by this answer.
+    else setTimeout(() => card.isConnected && setSending(card, false), 5000);
+  };
   if (request.kind === "permission") {
-    if (request.toolName === "AskUserQuestion") return questionCard(request, respond);
-    if (request.toolName === "ExitPlanMode") return planCard(request, respond);
-    return permissionCard(request, respond, toolCard);
-  }
-  if (request.kind === "elicitation") return elicitationCard(request, respond);
-  return dialogCard(request, respond);
+    if (request.toolName === "AskUserQuestion") card = questionCard(request, send);
+    else if (request.toolName === "ExitPlanMode") card = planCard(request, send);
+    else card = permissionCard(request, send, toolCard);
+  } else if (request.kind === "elicitation") card = elicitationCard(request, send);
+  else card = dialogCard(request, send);
+  return card;
 }
 
 // ---- permission ------------------------------------------------------------------
@@ -122,22 +145,34 @@ function questionCard(request, respond) {
     });
     form.append(h("fieldset.q", question.header ? h("span.badge", question.header) : null, h("legend", { dir: "auto" }, question.question), h("div.q-options", options), custom));
   });
+  const answerOf = (question) => {
+    const picked = [...answers.get(question.question)];
+    const extra = customInputs.get(question.question).value.trim();
+    if (extra) picked.push(extra);
+    return picked.join(", ");
+  };
   const submit = () => {
-    const result = {};
-    for (const question of questions) {
-      const picked = [...answers.get(question.question)];
-      const extra = customInputs.get(question.question).value.trim();
-      if (extra) picked.push(extra);
-      result[question.question] = picked.join(", ");
-    }
+    if (questions.some((question) => !answerOf(question))) return;
+    const result = Object.fromEntries(questions.map((question) => [question.question, answerOf(question)]));
     respond(request.id, { behavior: "allow", updatedInput: { ...request.input, answers: result }, toolUseID: request.toolUseID });
   };
-  return h(
+  const sendBtn = h("button.btn.primary", { type: "button", onclick: submit }, icon("check", 14), t("Send answers"));
+  const card = h(
     "section.request.question",
     h("header.req-head", icon("help", 16), h("div.req-title", h("strong", t("Claude has a question")))),
     form,
-    h("div.req-actions", h("button.btn.primary", { type: "button", onclick: submit }, icon("check", 14), t("Send answers")), h("button.btn.ghost", { type: "button", onclick: () => respond(request.id, { behavior: "deny", message: t("The user skipped the question."), toolUseID: request.toolUseID }) }, t("Skip"))),
+    h("div.req-actions", sendBtn, h("button.btn.ghost", { type: "button", onclick: () => respond(request.id, { behavior: "deny", message: t("The user skipped the question."), toolUseID: request.toolUseID }) }, t("Skip"))),
   );
+  // Every question needs an answer (an option or the "Other" text) before the answers can be sent.
+  card.validate = () => {
+    const missing = questions.filter((question) => !answerOf(question)).length;
+    sendBtn.disabled = missing > 0;
+    sendBtn.title = missing ? t("Answer every question first ({n} left)", { n: missing }) : "";
+  };
+  form.addEventListener("input", card.validate);
+  form.addEventListener("change", card.validate);
+  card.validate();
+  return card;
 }
 
 // ---- plan ------------------------------------------------------------------------

@@ -3,6 +3,58 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, minor versions may change the config format).
 
+## [0.7.0] - 2026-11-20
+
+### Added
+- **Every Claude Code setting in Settings**: 168 `settings.json` keys from the official settings reference, on six
+  category pages plus a searchable *All Claude Code settings* page. Each row has a description, a docs link, the
+  documented default, a Reset button, badges when another scope or a managed policy sets the key, and a control that
+  matches the key's type (structured editors for `attribution`, `modelPicker`, `modelSettings`, `fallbackModel`,
+  `statusLine`, `spinnerVerbs`, `voice`, worktree and sandbox keys…). Input is validated before it is saved, only the
+  edited key is written, and keys Wheelhouse doesn't know are kept. Keys read only from user settings are locked in
+  project and local scope. The old *Advanced → Common settings* tab now points to these pages.
+- **Memory**: *Settings → Memory* has three tabs. *Rules* lists, creates, renames and deletes `.claude/rules/**/*.md`
+  for the project and the user, with an editor for the `paths` frontmatter. *Auto memory* finds the project's memory
+  folder the way Claude Code does (git root, `autoMemoryDirectory`, `CLAUDE_CODE_PROJECT_DIR_NAME`), shows whether
+  auto memory is on (with a toggle), the `MEMORY.md` index with a warning near the 200-line / 25KB load limit, and
+  lets you view, edit, create and delete memories.
+- **Keyboard shortcuts** and **Themes** pages for `keybindings.json` and `themes/*.json` (documented contexts,
+  actions and chord syntax; theme tokens with swatches and a preview). The *Environment* page suggests 349 documented
+  variables with English and Persian descriptions and masks secret values.
+- **Diagnostics** page: Claude Code version, `auth status`, `mcp list`, `doctor`, the executable, profile, config
+  folder and update status in one place.
+- **Git**: push, pull, stash and a pull request card (via `gh`: status, checks, create, open), and a list of git
+  worktrees (including Claude Code's `.claude/worktrees/`) with size, branch, state and Remove.
+- **Conversation**: images that tools return (Read on a picture, screenshots from browser or MCP tools) are shown,
+  with a viewer; `/goal` shows a chip with the condition, turns, last reason and Clear; a refused reply that fell back
+  to another model removes the retracted messages and offers *Edit and retry*; recalled memories and plugin installs
+  get notices; Workflow, PushNotification, Artifact, SendUserFile, ReportFindings (with *Fix this*), ProposeGoal and
+  worktree tools get their own cards. *Compact now* takes optional focus instructions.
+
+### Fixed
+- Live replies stayed "streaming" until a reload: Claude Code sends one message per content block, and the page
+  stopped following a reply after its first block. Text after thinking now streams, and Reply/Copy/Fork, the model
+  and the token count appear as soon as a reply ends.
+- Long conversations did work proportional to their length on every streamed token; rendering is now linear and the
+  streaming reply's Markdown is re-rendered at most every 100 ms.
+- Security: a GET request could make git write a file (`base=--output=…` on a legacy diff route), and pages on other
+  sites could trigger GET routes that start processes. Cross-site requests (`Sec-Fetch-Site`, `Referer`) are refused,
+  the unused legacy `/api/git/{diff,log,branches,action}` routes are gone, and git arguments that look like options
+  are rejected. Gateway URLs, MCP arguments and `.mcp.json` values no longer reach the page unmasked.
+- A session restarted while it was still starting (changing model or mode right after the first message) killed the
+  new process. Streams attached to a session that was removed or stopped by a profile switch now end, so replies
+  after it are not lost; session streams get keepalive pings.
+- Profile names such as `constructor` stopped every session and then failed.
+- The Claude Code updater now only uses its own copy for npm installs without a custom command, removes old copies,
+  waits for every Claude Code process (sign-ins, `/limit-reset` windows, CLI runs) before replacing files, and runs
+  npm without a shell.
+- File names with non-Latin characters (Persian) came back garbled from file search and git.
+- The Files editor lost unsaved edits when the panel re-rendered; terminal tabs held a browser connection each and
+  could starve other requests; the Output styles page kept showing the old style as active; the Hooks page never showed
+  *Effective hooks*; settings pages could show and save the wrong scope after a quick tab switch; clearing a value in
+  Session options didn't apply; the Environment table lost typing and silently overwrote a duplicate name; approval
+  cards accepted double clicks and empty answers; Persian text in the Markdown editors was laid out left to right.
+
 ## [0.6.3] - 2026-11-11
 
 ### Changed

@@ -101,9 +101,14 @@ export function openLoginDialog(profile = app.config?.profile) {
     draw();
     try {
       flow = await api.post("/api/auth/login", { name: profile });
+      if (closed) { // closed while the login was starting: onClose had no flow id yet, so stop the CLI here
+        if (flow?.id && (flow.state === "starting" || flow.state === "waiting")) api.post(`/api/auth/login/${flow.id}/cancel`).catch(() => {});
+        return;
+      }
     } catch (error) {
       flow = { state: "failed", error: errorMessage(error) };
     }
+    if (closed) return;
     draw();
     poll(400);
   }

@@ -9,6 +9,8 @@ export default function register({ route, config, manager, catalog, store }) {
     catalog,
     // The active profile's own executable, whatever Wheelhouse currently runs.
     profileBin: () => resolveCommand(config.profiles[config.activeProfile]?.command, process.env).path || null,
+    // A profile with its own command (a wrapper, a pinned install) keeps running exactly that, never our copy.
+    customCommand: () => Boolean(config.profiles[config.activeProfile]?.command),
     enabled: () => store.data.prefs.autoUpdateClaude !== false,
     channel: () => (store.data.prefs.updateChannel === "stable" ? "stable" : "latest"),
   });
