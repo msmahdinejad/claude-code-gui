@@ -1,0 +1,33 @@
+/* Preview panel: address bar, device presets, framed page, dev servers. Logical properties only (RTL + LTR). */
+.pv-bar { display: flex; align-items: center; gap: 4px; padding: 8px 8px 4px; }
+.pv-input { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: .82em; }
+.pv-error { margin: 0 10px 4px; padding: 6px 10px; border-radius: var(--radius-sm); background: var(--danger-soft); color: var(--danger); font-size: .8em; }
+.pv-sub { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 4px 10px; }
+.pv-device .seg button { padding: 3px 10px; font-size: .78em; }
+.pv-check { display: inline-flex; align-items: center; gap: 6px; font-size: .8em; color: var(--text-2); cursor: pointer; }
+.pv-note { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 12px; font-size: .74em; color: var(--text-3); }
+.pv-note > span { flex: 1 1 200px; min-width: 0; }
+
+.pv-stage { flex: none; height: clamp(300px, 58vh, 760px); margin: 4px 8px; display: flex; justify-content: center; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-3); }
+.pv-wrap { width: 100%; max-width: 100%; min-height: 100%; display: flex; flex-direction: column; }
+.pv-wrap.pv-narrow { box-shadow: var(--shadow-md); border-inline: 1px solid var(--line-strong); }
+.pv-frame { flex: 1; width: 100%; min-height: 260px; border: 0; background: #fff; color-scheme: light; }
+.pv-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 24px; text-align: center; color: var(--text-3); }
+.pv-empty p { margin: 0; max-width: 32ch; font-size: .85em; }
+
+.pv-lower { flex: none; padding: 4px 8px 16px; }
+.pv-section-head { display: flex; align-items: center; gap: 6px; padding: 8px 4px 4px; font-weight: 600; color: var(--text-2); }
+.pv-section-head.small { font-size: .76em; font-weight: 500; color: var(--text-3); }
+.pv-server { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; padding: 6px 10px; margin-block: 4px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.pv-server.bad { border-color: var(--danger); background: var(--danger-soft); }
+.pv-server-main { flex: 1 1 180px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pv-server-name { font-weight: 600; overflow-wrap: anywhere; }
+.pv-server-cmd { font-family: var(--font-mono); font-size: .74em; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-server.bad .pv-server-cmd { white-space: normal; color: var(--danger); font-family: inherit; }
+.pv-server-actions { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.pv-hint { display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; font-size: .8em; color: var(--text-3); }
+.pv-hint.error { color: var(--danger); }
+.pv-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 4px 6px; }
+.pv-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border: 1px solid var(--line-strong); border-radius: 99px; background: var(--surface); color: var(--text-2); font-size: .78em; font-family: var(--font-mono); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-chip:hover { border-color: var(--accent); color: var(--accent); }
+.pv-log-host .pv-log { min-height: 80px; max-height: 180px; }

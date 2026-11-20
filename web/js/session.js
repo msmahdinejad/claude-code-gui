@@ -4,6 +4,7 @@ import { app, bus, currentConv } from "./core/state.js";
 import { toast, errorMessage, confirmDialog, promptDialog } from "./core/dom.js";
 import { t } from "./core/i18n.js";
 import { applyMessage, createConversation, isBusy, loadHistory, userItems } from "./chat/reducer.js";
+import { chooseStreams, MAX_SESSION_STREAMS } from "./ui/split-logic.js";
 
 const streams = new Map();
 
@@ -92,16 +93,23 @@ function reattachIfGone(id) {
 // followed every conversation it had ever opened (plus the global stream) left nothing for ordinary requests, so
 // Settings and other pages hung on "Loading…". Only the current conversation and sessions that are working keep a
 // stream (at most MAX_SESSION_STREAMS); the others are closed and re-attached from where they stopped when needed.
-const MAX_SESSION_STREAMS = 3;
+// The split view (app.splitId, set by features/split.js while a second pane is showing) counts as visible like the
+// current conversation; working sessions that are not on screen are dropped least recently looked at first.
+const lastSeen = new Map(); // id -> when it was last on screen
 const streamPosition = new Map(); // id -> last seq seen before its stream was closed to free a connection
 const LIVE_STATES = ["starting", "running", "requires_action"];
 
-function syncStreams() {
-  const wanted = [...app.convs.keys()]
-    .filter((id) => id === app.currentId || LIVE_STATES.includes(app.live.get(id)?.state))
-    .sort((a, b) => Number(b === app.currentId) - Number(a === app.currentId))
-    .slice(0, MAX_SESSION_STREAMS);
-  const keep = new Set(wanted);
+export function syncStreams() {
+  const now = Date.now();
+  for (const id of [app.currentId, app.splitId]) if (id) lastSeen.set(id, now);
+  const keep = new Set(chooseStreams({
+    ids: app.convs.keys(),
+    currentId: app.currentId,
+    splitId: app.splitId || null,
+    isLive: (id) => LIVE_STATES.includes(app.live.get(id)?.state),
+    lastSeen,
+    max: MAX_SESSION_STREAMS,
+  }));
   for (const [id, stream] of streams) {
     if (keep.has(id)) continue;
     streamPosition.set(id, stream.seq);
@@ -229,7 +237,11 @@ export async function newSession({ cwd, meta = {} } = {}) {
 }
 
 export async function sendMessage(text, images = [], { priority } = {}) {
-  const id = app.currentId;
+  return sendMessageTo(app.currentId, text, images, { priority });
+}
+
+/** Send to a given conversation (not only the one on screen): the automatic continue after a usage limit uses it. */
+export async function sendMessageTo(id, text, images = [], { priority } = {}) {
   if (!id) return;
   const conv = app.convs.get(id);
   try {
@@ -243,7 +255,11 @@ export async function sendMessage(text, images = [], { priority } = {}) {
 }
 
 export async function interrupt() {
-  const id = app.currentId;
+  return interruptTo(app.currentId);
+}
+
+/** Stop the running turn of a given conversation (the split pane has its own Stop button). */
+export async function interruptTo(id) {
   if (!id) return;
   try {
     await api.interrupt(id);
@@ -253,7 +269,11 @@ export async function interrupt() {
 }
 
 export async function respondRequest(requestId, answer) {
-  const id = app.currentId;
+  return respondRequestTo(app.currentId, requestId, answer);
+}
+
+/** Answer an approval / question / plan card of a given conversation (a blocked session shown in the split pane). */
+export async function respondRequestTo(id, requestId, answer) {
   try {
     await api.respond(id, requestId, answer);
     return true;

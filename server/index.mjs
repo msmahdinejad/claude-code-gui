@@ -99,7 +99,7 @@ const MIME = {
   ".webmanifest": "application/manifest+json",
 };
 
-const CSP = "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'";
+const CSP = "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: blob:; frame-src 'self' http://localhost:* http://127.0.0.1:*; media-src 'self' blob:; connect-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'";
 
 // ---- helpers -----------------------------------------------------------------------
 function json(res, status, body) {

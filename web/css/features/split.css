@@ -1,0 +1,56 @@
+/* Split view: a second conversation beside the main one. Nothing here applies until body.split-open is set, so the
+   single-pane layout is untouched. #main turns into a grid: [topbar/chat/dock] | divider | split pane. The columns
+   follow the document direction (the pane sits at the inline end: right in LTR, left in RTL). */
+body.split-open .main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 4px minmax(320px, min(var(--split-w, 50%), calc(100% - 324px)));
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+body.split-open .main > .topbar { grid-column: 1; grid-row: 1; min-width: 0; }
+body.split-open .main > .chat { grid-column: 1; grid-row: 2; min-width: 0; }
+body.split-open .main > .dock { grid-column: 1; grid-row: 3; min-width: 0; }
+/* The empty-chat layout centers greeting + message box vertically: the same with grid rows. */
+body.split-open.chat-empty .main { grid-template-rows: auto minmax(0, 1fr) auto minmax(0, 1fr); }
+body.split-open.chat-empty .main > .chat { align-self: end; margin-top: 0; }
+body.split-open.chat-empty .main > .dock { margin-bottom: 0; }
+
+.split-divider {
+  grid-column: 2; grid-row: 1 / -1; position: relative; z-index: 5; cursor: col-resize; touch-action: none;
+  background: var(--line); outline: 0;
+}
+.split-divider::before { content: ""; position: absolute; inset-block: 0; inset-inline: -4px; }
+.split-divider:hover, .split-divider.dragging, .split-divider:focus-visible { background: var(--accent); }
+body.split-dragging { cursor: col-resize; user-select: none; }
+body.split-dragging iframe { pointer-events: none; }
+
+.split-pane { grid-column: 3; grid-row: 1 / -1; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); overflow: hidden; }
+.split-head { flex: none; height: var(--topbar-h); display: flex; align-items: center; gap: 8px; padding-inline: 12px 8px; border-bottom: 1px solid var(--line); }
+.split-title { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; line-height: 1.25; }
+.split-title strong { font-weight: 600; font-size: .98em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.split-sub { display: flex; align-items: center; font-size: .75em; color: var(--text-3); direction: ltr; justify-content: flex-start; min-width: 0; }
+[dir="rtl"] .split-sub { justify-content: flex-end; }
+.split-sub span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.split-badge { flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 99px; background: var(--warn-soft); color: var(--warn); font-size: .75em; font-weight: 600; white-space: nowrap; }
+.split-badge .icon { animation: pulse 1.4s ease infinite; }
+
+.split-chat { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
+.split-chat .chat-scroll { padding-inline: 12px; }
+/* The empty main chat hides its own timeline (polish.css); the split timeline stays. */
+body.chat-empty .split-chat .chat-scroll { display: block; }
+body.chat-empty .split-chat .jump-latest { display: inline-flex; }
+/* "Reply" puts a quote into the main message box: not offered here. */
+.split-chat .mini:has(.icon-reply) { display: none; }
+.split-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--text-3); pointer-events: none; }
+
+.split-dock { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 0 12px 12px; }
+.split-requests { display: flex; flex-direction: column; gap: 10px; max-height: 45vh; overflow-y: auto; }
+.split-requests:empty { display: none; }
+.split-composer { display: flex; align-items: flex-end; gap: 6px; padding: 6px; padding-inline-start: 4px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-xl); transition: border-color .12s, box-shadow .12s; }
+.split-composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.split-input { flex: 1; min-width: 0; display: block; resize: none; border: 0; outline: 0; background: transparent; padding: 6px 10px; min-height: 36px; max-height: 200px; line-height: 1.6; color: inherit; font: inherit; }
+.split-input::placeholder { color: var(--text-3); opacity: 1; }
+.split-send { flex: none; }
+.split-hint { display: flex; align-items: center; gap: 6px; padding-inline: 8px; font-size: .72em; color: var(--text-3); }
+
+.sb-item.in-split { box-shadow: inset 0 0 0 1px var(--accent-soft); }
+.sb-item.in-split::after { content: ""; position: absolute; inset-block: 8px; inset-inline-end: 4px; inline-size: 3px; border-radius: 2px; background: var(--accent); opacity: .6; }

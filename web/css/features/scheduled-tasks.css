@@ -1,0 +1,30 @@
+/* Scheduled tasks (Settings page and its dialog). Tokens and logical properties only. */
+.st-toolbar { display: flex; justify-content: flex-end; margin-block-end: 10px; }
+.st-list { display: flex; flex-direction: column; gap: 10px; }
+.st-empty { padding: 18px 4px; text-align: center; }
+.st-task { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.st-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.st-head .grow { display: flex; flex-direction: column; gap: 2px; }
+.st-head .grow small { overflow-wrap: anywhere; }
+.st-meta { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: .86em; color: var(--text-2); align-items: center; }
+.st-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.st-actions .btn { display: inline-flex; align-items: center; gap: 5px; }
+.st-delete { margin-inline-start: auto; }
+.st-history { display: flex; flex-direction: column; gap: 2px; border-block-start: 1px solid var(--line); padding-block-start: 8px; max-block-size: 280px; overflow: auto; }
+.st-run { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; padding: 5px 2px; border-block-end: 1px dashed var(--line); font-size: .86em; }
+.st-run:last-child { border-block-end: 0; }
+.st-run-when { min-inline-size: 9em; }
+.st-run-error { color: var(--danger); flex: 1 1 14em; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-run .btn { margin-inline-start: auto; display: inline-flex; align-items: center; gap: 4px; }
+
+.st-form .st-prompt { min-block-size: 130px; font-family: inherit; }
+.st-form .field[hidden], .st-form .banner[hidden] { display: none; }
+.st-form .field small { display: block; }
+.st-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0 14px; }
+.st-folder-row { display: flex; align-items: center; gap: 8px; }
+.st-folder { flex: 1; min-inline-size: 0; direction: ltr; unicode-bidi: isolate; text-align: start; padding: 6px 10px; border-radius: var(--radius-sm); background: var(--code-bg); border: 1px solid var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .85em; }
+.st-folder-row .btn { display: inline-flex; align-items: center; gap: 5px; flex: none; }
+.st-check { display: flex; align-items: flex-start; gap: 10px; margin-block-end: 12px; cursor: pointer; }
+.st-check input { margin-block-start: 3px; }
+.st-check small { display: block; color: var(--text-3); }
+.st-dialog .banner { margin-block-end: 10px; }

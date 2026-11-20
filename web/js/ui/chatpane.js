@@ -153,6 +153,7 @@ export function mountChat(chatRoot, dockRoot) {
     renderWelcome();
   });
   bus.on("prefs", () => view.sync());
+  bus.emit("chatview", view); // the split view swaps scroll positions between the two panes
   return view;
 }
 

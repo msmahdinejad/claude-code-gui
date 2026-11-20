@@ -581,6 +581,21 @@ function applySystem(conv, msg, { live }) {
   }
 }
 
+/**
+ * A claude.ai usage limit that stopped the turn: conv.limitHit = { resetsAt (ms), type, at } until the limit is reported
+ * as allowed again for that window or the user sends a newer message. Needs the event's resetsAt (epoch seconds).
+ */
+function noteLimit(conv, info) {
+  if (!info || typeof info !== "object") return;
+  const type = info.rateLimitType || info.rate_limit_type || "";
+  if (info.status === "rejected" && Number(info.resetsAt) > 0) {
+    const resetsAt = info.resetsAt > 1e12 ? info.resetsAt : info.resetsAt * 1000;
+    if (conv.limitHit?.resetsAt !== resetsAt) conv.limitHit = { resetsAt, type, at: Date.now() };
+  } else if (conv.limitHit && info.status && info.status !== "rejected" && (!type || type === conv.limitHit.type)) {
+    conv.limitHit = null;
+  }
+}
+
 function applyResult(conv, msg) {
   finishAllStreaming(conv);
   conv.state = conv.state === "requires_action" ? "idle" : conv.state === "running" ? "idle" : conv.state;
@@ -616,6 +631,7 @@ export function applyMessage(conv, msg, { live = true } = {}) {
       conv.seen.add(msg.uuid);
       pushItem(conv, { kind: "user", uuid: msg.uuid, text: msg.text, images: msg.images || [], at: msg.at, pending: true, priority: msg.priority });
       conv.lastUserUuid = msg.uuid;
+      conv.limitHit = null; // a newer message of the user ends the wait for a usage limit
       conv.turnStartedAt ??= Date.now();
       if (conv.state !== "requires_action") conv.state = "running";
       break;
@@ -668,6 +684,7 @@ export function applyMessage(conv, msg, { live = true } = {}) {
       break;
     case "rate_limit_event":
       conv.rateLimit = msg.rate_limit_info || msg;
+      noteLimit(conv, conv.rateLimit);
       conv.version += 1;
       break;
     case "wh_request": {

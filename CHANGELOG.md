@@ -3,6 +3,29 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, minor versions may change the config format).
 
+## [0.8.0] - 2026-11-20
+
+### Added
+- **Update and relaunch**: when a newer Claude Code is available, a chip next to the title (also with automatic updates
+  off) opens a dialog with the versions, links to the changes and an *Update and relaunch* button with download
+  progress; sessions on the old version restart on your next message.
+- **Real terminal**: the Terminal tab runs a real pseudo-terminal (ConPTY on Windows, via the optional `node-pty`
+  package) with colors and interactive programs; without it the previous basic terminal is used.
+- **Preview** tab: a local web app (from `.claude/launch.json` or any `localhost` port) or a project HTML/PDF next to
+  the conversation, with device widths.
+- **Scheduled tasks** (*Settings → Scheduled tasks*, off by default): recurring prompts started as sessions while
+  Wheelhouse is open; never in bypass mode, one run at a time, missed runs caught up once.
+- **Split view**: a second conversation beside the main one (sidebar menu → *Open in split view*, or Alt+click), with
+  its own message box and approval cards, a draggable divider and *Swap*.
+- **Prompt history across sessions** with Ctrl+R, `!` shell mode (runs locally; you choose whether to send the output
+  to Claude) and *Continue automatically after a usage limit* (off by default).
+
+### Fixed
+- The Claude Code updater could leave the installed Claude Code broken: when the large platform package could not be
+  downloaded, npm still reported success and the old install was already gone. The new version is now installed
+  next to the old one, checked (size and `--version`) and only then swapped in; the old version is restored by renaming
+  if anything fails, with no network needed, and an interrupted swap is recovered at the next start.
+
 ## [0.7.0] - 2026-11-20
 
 ### Added

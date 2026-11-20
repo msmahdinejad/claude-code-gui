@@ -1,0 +1,17 @@
+export const fa = {
+  "Open in split view": "باز کردن در نمای دوپنجره‌ای",
+  "Close split view": "بستن نمای دوپنجره‌ای",
+  "Split view": "نمای دوپنجره‌ای",
+  "Resize split view": "تغییر اندازهٔ نمای دوپنجره‌ای",
+  "Drag to resize · double-click to reset": "برای تغییر اندازه بکشید · برای بازنشانی دوبار کلیک کنید",
+  "Swap with main (open as the main conversation)": "جابه‌جایی با گفتگوی اصلی (باز کردن به‌عنوان گفتگوی اصلی)",
+  "Waiting for your answer": "منتظر پاسخ شما",
+  "No messages yet.": "هنوز پیامی نیست.",
+  "Message this conversation…": "پیام به این گفتگو…",
+  "Enter to send · Shift+Enter for a new line": "Enter برای ارسال · Shift+Enter برای خط جدید",
+  "Attachments, slash commands, @ mentions and the message queue are only available in the main message box.": "پیوست‌ها، دستورهای اسلش، اشاره با @ و صف پیام‌ها فقط در جعبهٔ پیام اصلی در دسترس هستند.",
+  "This conversation is already open in the main pane.": "این گفتگو هم‌اکنون در بخش اصلی باز است.",
+  "There is not enough room for a split view: it needs a window at least {px}px wide with room for two panes. Widen the window or hide the sidebar or the inspector.": "برای نمای دوپنجره‌ای جا کافی نیست: پنجره باید دست‌کم {px} پیکسل عرض داشته باشد و برای دو بخش جا باشد. پنجره را عریض‌تر کنید یا نوار کناری یا بازرس را ببندید.",
+  "The split view is hidden because there is not enough room. It comes back when the window is wider.": "نمای دوپنجره‌ای به‌دلیل کمبود جا پنهان شد. با عریض‌تر شدن پنجره دوباره نمایش داده می‌شود.",
+  "Rewinding files is available in the main pane. Swap the panes first.": "بازگرداندن فایل‌ها در بخش اصلی انجام می‌شود. ابتدا جای دو بخش را عوض کنید.",
+};

@@ -10,10 +10,11 @@ const HEARTBEAT_MS = 10_000;
 
 export function initNotifications() {
   const report = () => {
-    api.post("/api/presence", { focused: document.hasFocus() && !document.hidden, sessionId: app.currentId, lang: getLang() }).catch(() => {});
+    api.post("/api/presence", { focused: document.hasFocus() && !document.hidden, sessionId: app.currentId, sessionIds: [app.currentId, app.splitId].filter(Boolean), lang: getLang() }).catch(() => {});
   };
   for (const name of ["focus", "blur", "visibilitychange"]) window.addEventListener(name, report);
   bus.on("current", report);
+  bus.on("split:change", report); // the conversation in the split pane is being read too (sessionIds; older servers only look at sessionId)
   setInterval(() => { if (document.hasFocus()) report(); }, HEARTBEAT_MS);
   report();
 

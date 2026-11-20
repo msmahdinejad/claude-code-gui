@@ -1,0 +1,18 @@
+/* Terminal tab, PTY mode (xterm.js). The terminal itself is always LTR; the panel chrome follows the app direction. */
+.term-slot { display: contents; }
+.term-loading { display: flex; align-items: center; gap: 8px; padding: 14px 12px; color: var(--text-3); font-size: .85em; }
+.term-mode-note { color: var(--text-2); }
+.pty-switch { margin-inline-start: auto; }
+
+.pty-host { min-height: 240px; }
+.pty-screen { position: relative; flex: 1; min-height: 240px; background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; direction: ltr; text-align: left; }
+.pty-screen:focus-within { border-color: var(--accent); }
+.pty-mount { position: absolute; inset: 6px 2px 4px 8px; }
+.pty-screen .xterm { height: 100%; direction: ltr; }
+.pty-screen .xterm-viewport { background-color: transparent !important; }
+.pty-screen .xterm-viewport::-webkit-scrollbar { width: 10px; }
+.pty-screen .xterm-viewport::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 5px; }
+.pty-screen .xterm-helper-textarea { direction: ltr; }
+
+/* Let the terminal fill the inspector's height (the inspector body is a plain block that sizes to its content). */
+.insp-content:has(.ws-panel.pty) { height: 100%; }

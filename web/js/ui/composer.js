@@ -10,6 +10,7 @@ import { isBusy } from "../chat/reducer.js";
 import { toQuote } from "../chat/quote.js";
 import { openModelPicker, openModePicker, openEffortPicker, currentModelInfo, modelLabel, modeInfo, EFFORTS } from "./pickers.js";
 import { makeCtx } from "../ctx.js";
+import { openHistoryPicker, isShellInput, createLocalRuns, createLimitBanner, noteUserMessage } from "../features/input-more.js";
 
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_PDF_BYTES = 10 * 1024 * 1024;
@@ -40,7 +41,9 @@ export function mountComposer(host) {
   const micBtn = ibtn("mic", t("Dictate"), () => toggleDictation(), { cls: "mic" });
   const fileInput = h("input", { type: "file", accept: FILE_ACCEPT, multiple: true, class: "hidden", onchange: () => { addFiles([...fileInput.files]); fileInput.value = ""; } });
   const hint = h("div.footer-hint");
-  const root = h("div.composer", attachments, queueBox, textarea, h("div.cmp-bar", plusBtn, modeBtn, h("span.grow"), effortBtn, modelBtn, micBtn, sendBtn), fileInput);
+  const limitBanner = createLimitBanner();
+  const localRuns = createLocalRuns({ onSend: (text) => sendContext(text) });
+  const root = h("div.composer", limitBanner.el, localRuns.el, attachments, queueBox, textarea, h("div.cmp-bar", plusBtn, modeBtn, h("span.grow"), effortBtn, modelBtn, micBtn, sendBtn), fileInput);
   host.replaceChildren(root, hint);
 
   let images = []; // every attachment: {mediaType, data (base64), name, size}; pictures, PDFs and text files
@@ -69,6 +72,7 @@ export function mountComposer(host) {
       autosize();
     }
     renderQueue();
+    localRuns.update();
   }
 
   function autosize() {
@@ -92,8 +96,11 @@ export function mountComposer(host) {
     sendBtn.classList.toggle("stop", busy && !hasContent);
     sendBtn.replaceChildren(icon(busy && !hasContent ? "stop" : "arrow-up", busy && !hasContent ? 15 : 17));
     sendBtn.disabled = !busy && !hasContent;
-    sendBtn.title = busy && !hasContent ? t("Stop") : busy ? t("Queue message") : t("Send");
-    hint.textContent = app.prefs.sendKey === "enter" ? t("Enter to send · Shift+Enter for a new line · / for commands · @ for files") : t("Ctrl+Enter to send · / for commands · @ for files");
+    const shell = isShellInput(textarea.value) && !images.length;
+    root.classList.toggle("shell-mode", shell);
+    sendBtn.title = shell ? t("Run on this machine") : busy && !hasContent ? t("Stop") : busy ? t("Queue message") : t("Send");
+    limitBanner.update();
+    hint.textContent = shell ? t("Shell mode: Enter runs the command on this machine. Nothing is sent to Claude.") : app.prefs.sendKey === "enter" ? t("Enter to send · Shift+Enter for a new line · / for commands · @ for files") : t("Ctrl+Enter to send · / for commands · @ for files");
     micBtn.classList.toggle("active", Boolean(dictation));
   }
 
@@ -214,6 +221,7 @@ export function mountComposer(host) {
 
   // ---- sending ----
   async function deliver(text, imgs) {
+    noteUserMessage(app.currentId);
     try {
       await session.sendMessage(text, imgs);
     } catch {
@@ -239,6 +247,12 @@ export function mountComposer(host) {
       if (busy) session.interrupt();
       return;
     }
+    if (isShellInput(text) && !images.length) {
+      const command = text.slice(1).trim();
+      if (!command) return;
+      if (await localRuns.run(command)) clearInput();
+      return;
+    }
     if (text.startsWith("/") && !images.length) {
       const handled = await runClientSlash(text);
       if (handled) {
@@ -254,6 +268,17 @@ export function mountComposer(host) {
       return;
     }
     await deliver(entry.text, entry.images);
+  }
+
+  // The output of a local command, sent on purpose with its button: queued like any message while Claude is working.
+  async function sendContext(text) {
+    const conv = currentConv();
+    if (conv && isBusy(conv) && conv.state !== "starting") {
+      queueFor().push({ text, images: [] });
+      renderQueue();
+      return;
+    }
+    await deliver(text, []);
   }
 
   function clearInput() {
@@ -422,7 +447,28 @@ export function mountComposer(host) {
     refresh();
     updateAutocomplete();
   });
+  function insertHistory(text) {
+    const before = textarea.value.replace(/\s+$/, "");
+    textarea.value = before ? `${before}\n\n${text}` : text;
+    recall = null;
+    autosize();
+    saveDraft();
+    refresh();
+    focusInput();
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+  }
+
+  function openHistory() {
+    closeAc();
+    openHistoryPicker({ cwd: currentConv()?.cwd || app.currentCwd, onPick: insertHistory });
+  }
+
   textarea.addEventListener("keydown", (event) => {
+    if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && !event.isComposing && (event.code === "KeyR" || event.key.toLowerCase() === "r")) {
+      event.preventDefault(); // not the browser's reload: Ctrl+R searches earlier prompts, like in Claude Code
+      openHistory();
+      return;
+    }
     if (ac && ["ArrowDown", "ArrowUp", "Tab", "Enter", "Escape"].includes(event.key) && !event.isComposing) {
       if (event.key === "ArrowDown") { event.preventDefault(); moveAc(1); return; }
       if (event.key === "ArrowUp") { event.preventDefault(); moveAc(-1); return; }
@@ -454,6 +500,8 @@ export function mountComposer(host) {
       { label: t("Attach file or image"), icon: "paperclip", onClick: () => fileInput.click() },
       { label: t("Mention a file (@)"), icon: "at", onClick: () => { textarea.value += (textarea.value && !/\s$/.test(textarea.value) ? " " : "") + "@"; textarea.focus(); updateAutocomplete(); } },
       { label: t("Slash commands (/)"), icon: "slash", onClick: () => { textarea.value = "/"; textarea.focus(); updateAutocomplete(); } },
+      { label: t("Earlier prompts"), icon: "history", hint: "Ctrl+R", onClick: openHistory },
+      { label: t("Run a command here (!)"), icon: "terminal", onClick: () => { textarea.value = "!"; textarea.focus(); autosize(); refresh(); } },
       "-",
       { label: t("Plan mode"), icon: "list", onClick: () => session.setPermissionMode("plan") },
       { label: t("Add folder to this session…"), icon: "folder", onClick: () => bus.emit("command", "add-dir") },

@@ -6,6 +6,7 @@ import { app, bus, setPrefs } from "../core/state.js";
 
 import { isScratchCwd, newSession, openSession, promptRename, pinSession, archiveSession, deleteSession, forkFrom, promptTag, tagSession } from "../session.js";
 import { openSettings } from "./settings.js";
+import { openSplit } from "../features/split.js";
 
 
 let filter = "all"; // all | pinned | running | archived
@@ -117,8 +118,8 @@ export function mountSidebar(root) {
     const state = live?.state || session.state || "closed";
     const pending = live?.pending?.length || session.pending || 0;
     const row = h(
-      `div.sb-item${session.id === app.currentId ? ".active" : ""}`,
-      { role: "button", tabindex: "0", onclick: () => { openSession(session.id, { cwd: session.cwd }); closeOnNarrow(); }, onkeydown: (event) => (event.key === "Enter" || event.key === " ") && (event.preventDefault(), openSession(session.id, { cwd: session.cwd }), closeOnNarrow()), oncontextmenu: (event) => { event.preventDefault(); sessionMenu(event.currentTarget, session); } },
+      `div.sb-item${session.id === app.currentId ? ".active" : ""}${session.id === app.splitId ? ".in-split" : ""}`,
+      { role: "button", tabindex: "0", onclick: (event) => { if (event.altKey) openSplit(session.id, { cwd: session.cwd }); else { openSession(session.id, { cwd: session.cwd }); closeOnNarrow(); } }, onkeydown: (event) => (event.key === "Enter" || event.key === " ") && (event.preventDefault(), event.altKey ? openSplit(session.id, { cwd: session.cwd }) : (openSession(session.id, { cwd: session.cwd }), closeOnNarrow())), oncontextmenu: (event) => { event.preventDefault(); sessionMenu(event.currentTarget, session); } },
       h(`span.sb-dot.${pending ? "requires_action" : state}`),
       h("span.sb-title", { dir: "auto", title: session.title }, session.title || t("Untitled session")),
       session.tag ? h("span.sb-tag", { dir: "auto", title: session.tag }, session.tag) : null,
@@ -133,6 +134,7 @@ export function mountSidebar(root) {
       { label: t("Rename"), icon: "edit", onClick: () => promptRename(session.id) },
       { label: session.pinned ? t("Unpin") : t("Pin"), icon: "pin", onClick: () => pinSession(session.id, !session.pinned) },
       { label: session.archived ? t("Unarchive") : t("Archive"), icon: "archive", onClick: () => archiveSession(session.id, !session.archived) },
+      { label: t("Open in split view"), icon: "panel-right", onClick: () => openSplit(session.id, { cwd: session.cwd }) },
       { label: t("Fork"), icon: "split", onClick: () => forkFrom(session.id) },
       { label: session.tag ? t("Change tag…") : t("Add tag…"), icon: "tag", onClick: () => promptTag(session.id) },
       session.tag ? { label: t("Remove tag"), icon: "x", onClick: () => tagSession(session.id, null) } : null,
@@ -162,6 +164,7 @@ export function mountSidebar(root) {
   refreshFoot();
   bus.on("sessions", () => { renderFilters(); renderList(); });
   bus.on("live", renderList);
+  bus.on("split:change", renderList);
   bus.on("current", () => { renderList(); refreshFoot(); });
   bus.on("prefs", () => { renderList(); });
 }

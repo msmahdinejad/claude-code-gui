@@ -72,8 +72,10 @@ export class Notifier extends EventEmitter {
   }
 
   /** The page says whether it has focus and which conversation is open, so we do not announce what the user is reading. */
-  setPresence({ focused, sessionId, lang }) {
-    this.presence = { focused: Boolean(focused), sessionId: sessionId ? String(sessionId) : null, at: Date.now() };
+  setPresence({ focused, sessionId, sessionIds, lang }) {
+    // `sessionIds` lists every conversation on screen (the main one and the split pane); `sessionId` stays for older pages.
+    const shown = (Array.isArray(sessionIds) ? sessionIds : [sessionId]).filter((id) => typeof id === "string" && id).slice(0, 4).map(String);
+    this.presence = { focused: Boolean(focused), sessionId: shown[0] || null, sessionIds: shown, at: Date.now() };
     if (lang === "fa" || lang === "en") this.lang = lang;
   }
 
@@ -83,7 +85,7 @@ export class Notifier extends EventEmitter {
 
   watching(sessionId) {
     const p = this.presence;
-    return Boolean(p?.focused && p.sessionId === sessionId && Date.now() - p.at < PRESENCE_TTL_MS);
+    return Boolean(p?.focused && p.sessionIds?.includes(sessionId) && Date.now() - p.at < PRESENCE_TTL_MS);
   }
 
   onState(summary) {

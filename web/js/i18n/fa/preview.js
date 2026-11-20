@@ -1,0 +1,40 @@
+export const fa = {
+  "Open preview": "باز کردن پیش‌نمایش",
+  Desktop: "دسکتاپ",
+  Tablet: "تبلت",
+  Phone: "موبایل",
+  "Enter a local address such as http://localhost:3000.": "یک نشانی محلی مثل http://localhost:3000 وارد کن.",
+  "Only http:// addresses on this computer can be previewed.": "فقط نشانی‌های http:// روی همین رایانه قابل پیش‌نمایش‌اند.",
+  "Addresses with a user name or password are not allowed.": "نشانی‌هایی که نام کاربری یا گذرواژه دارند مجاز نیستند.",
+  'Only localhost, 127.0.0.1 and [::1] can be previewed. Use "Open in browser" for other sites.':
+    "فقط localhost و 127.0.0.1 و [::1] قابل پیش‌نمایش‌اند. برای سایت‌های دیگر از «باز کردن در مرورگر» استفاده کن.",
+  "That port number is not valid.": "این شمارهٔ پورت معتبر نیست.",
+  "That is Wheelhouse itself. Enter the port of your app.": "این خودِ Wheelhouse است. پورت برنامهٔ خودت را وارد کن.",
+  "That is not a valid address.": "این نشانی معتبر نیست.",
+  "Enter a local address, start a dev server below, or open a project HTML or PDF file.":
+    "یک نشانی محلی وارد کن، پایین یک سرور توسعه راه بینداز، یا یک فایل HTML یا PDF پروژه را باز کن.",
+  "Start this dev server?": "این سرور توسعه راه بیفتد؟",
+  "This runs the command from the project's .claude/launch.json in the project folder, with your privileges: {command}":
+    "این دستور از فایل .claude/launch.json پروژه، در پوشهٔ پروژه و با دسترسی‌های تو اجرا می‌شود: {command}",
+  Start: "شروع",
+  "{name} stopped before its port opened. See the output below.": "{name} پیش از باز شدن پورتش متوقف شد. خروجی پایین را ببین.",
+  "{name} did not open port {port} in time.": "{name} پورت {port} را به‌موقع باز نکرد.",
+  "launch.json problem:": "مشکل launch.json:",
+  "starting…": "در حال شروع…",
+  "port in use": "پورت مشغول است",
+  "launch.json has no configurations.": "launch.json هیچ پیکربندی ندارد.",
+  "No .claude/launch.json in this project. Add one to start a dev server from here, or enter the address of a server you already run.":
+    "این پروژه فایل .claude/launch.json ندارد. یکی اضافه کن تا از اینجا سرور توسعه راه بیندازی، یا نشانی سروری را که خودت اجرا کرده‌ای وارد کن.",
+  "Something is listening on this port": "چیزی روی این پورت گوش می‌دهد",
+  "Dev servers": "سرورهای توسعه",
+  "Listening now": "اکنون در حال گوش دادن",
+  "Project files": "فایل‌های پروژه",
+  "http://localhost:3000 or a project .html / .pdf file": "http://localhost:3000 یا یک فایل .html / .pdf پروژه",
+  "Preview address": "نشانی پیش‌نمایش",
+  Forward: "جلو",
+  "Let the page run its own scripts (it still cannot reach Wheelhouse)": "اجازه بده صفحه اسکریپت‌های خودش را اجرا کند (باز هم به Wheelhouse دسترسی ندارد)",
+  "Allow scripts": "اجازهٔ اسکریپت",
+  "Sites that send X-Frame-Options or frame-ancestors cannot be shown here; if the page stays blank, open it in your browser.":
+    "سایت‌هایی که X-Frame-Options یا frame-ancestors می‌فرستند اینجا نمایش داده نمی‌شوند؛ اگر صفحه خالی ماند، آن را در مرورگرت باز کن.",
+  "Dev server output": "خروجی سرور توسعه",
+};

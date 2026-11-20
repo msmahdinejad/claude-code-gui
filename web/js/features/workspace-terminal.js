@@ -1,5 +1,7 @@
-// Inspector tab "Terminal": a non-interactive command runner (spawn + SSE, no PTY).
-// Multiple tabs, history, ANSI colors, stop, stdin line for running processes, "Send output to Claude".
+// Inspector tab "Terminal". Two modes:
+//  - PTY mode (workspace-pty.js, xterm.js + server/lib/routes/pty.mjs): a real pseudo-terminal, used when node-pty loads.
+//  - Basic mode (this file): a non-interactive command runner (spawn + SSE, no PTY), kept as the fallback.
+//    Multiple tabs, history, ANSI colors, stop, stdin line for running processes, "Send output to Claude".
 import { h, ibtn, toast, errorMessage, copyText, baseName, shortPath } from "../core/dom.js";
 import { icon } from "../core/icons.js";
 import { t } from "../core/i18n.js";
@@ -7,6 +9,7 @@ import { app, bus } from "../core/state.js";
 import { api } from "../core/api.js";
 import { registerInspectorTab, registerCommand } from "../core/registry.js";
 import { AnsiView, cwdNow } from "./workspace-common.js";
+import { ptyReady, renderPty, ptyRunning } from "./workspace-pty.js";
 
 const HISTORY_KEY = "wheelhouse-term-history";
 const MAX_TRANSCRIPT = 400_000;
@@ -212,7 +215,8 @@ function mountActive() {
   requestAnimationFrame(() => { tab.root.scrollTop = tab.root.scrollHeight; });
 }
 
-function render(container) {
+/** Basic (line-based) terminal. `note` explains why it is shown; `switchToPty` (optional) offers the real terminal. */
+function renderBasic(container, { note = "", switchToPty = null } = {}) {
   if (!tabs.length) createTab();
   const input = h("input.input.term-input", { type: "text", dir: "ltr", spellcheck: "false", autocomplete: "off", placeholder: t("Type a command and press Enter"), "aria-label": t("Command") });
   const promptLabel = h("span.term-prompt", { dir: "ltr" });
@@ -249,12 +253,13 @@ function render(container) {
     h(
       "div.ws-panel.term",
       strip,
+      note ? h("div.term-note.term-mode-note", icon("info", 13), h("span", note)) : null,
       h("div.term-note", icon("info", 13), h("span", t("Runs commands without a TTY. Interactive programs that wait for key presses won't work; you can send lines to stdin while a command runs."))),
       host,
       status,
       h("div.term-bar", promptLabel, input, runBtn, stopBtn),
       stdinRow,
-      h("div.term-tools", h("button.btn.small.ghost", { type: "button", onclick: sendToClaude }, icon("sparkles", 13), t("Send output to Claude")), h("button.btn.small.ghost", { type: "button", onclick: () => { activeTab()?.view.clear(); } }, icon("trash", 13), t("Clear")), h("button.btn.small.ghost", { type: "button", onclick: () => copyText(activeTab()?.view.plainText() || "") }, icon("copy", 13), t("Copy output"))),
+      h("div.term-tools", h("button.btn.small.ghost", { type: "button", onclick: sendToClaude }, icon("sparkles", 13), t("Send output to Claude")), h("button.btn.small.ghost", { type: "button", onclick: () => { activeTab()?.view.clear(); } }, icon("trash", 13), t("Clear")), h("button.btn.small.ghost", { type: "button", onclick: () => copyText(activeTab()?.view.plainText() || "") }, icon("copy", 13), t("Copy output")), switchToPty ? h("button.btn.small.ghost.pty-switch", { type: "button", title: t("Use a real terminal (colors, cursor control, interactive programs)"), onclick: switchToPty }, icon("terminal", 13), t("Real terminal")) : null),
     ),
   );
   mountActive();
@@ -265,7 +270,36 @@ function render(container) {
   return () => { ui = null; syncStreams(); };
 }
 
-registerInspectorTab({ id: "terminal", title: "Terminal", icon: "terminal", order: 30, render, badge: () => (tabs.some((tab) => tab.running) ? "●" : "") });
+const MODE_KEY = "wheelhouse-term-mode"; // "basic" = the user chose the line-based terminal
+const savedMode = () => { try { return localStorage.getItem(MODE_KEY) || ""; } catch { return ""; } };
+const saveMode = (mode) => { try { localStorage.setItem(MODE_KEY, mode); } catch { /* ignore */ } };
+
+function render(container) {
+  const slot = h("div.term-slot"); // display: contents, so the panels lay out exactly as before
+  container.append(slot);
+  let stop = () => {};
+  let dead = false;
+  const show = async (forceBasic = false) => {
+    stop();
+    stop = () => {};
+    const wantBasic = forceBasic || savedMode() === "basic";
+    slot.replaceChildren(h("div.term-loading", h("span.spinner", { style: { width: "14px", height: "14px" } }), t("Starting terminal")));
+    const ready = await ptyReady();
+    if (dead) return;
+    slot.replaceChildren();
+    if (ready.ok && !wantBasic) {
+      stop = renderPty(slot, ready, { switchToBasic: () => { saveMode("basic"); show(true); } });
+    } else {
+      const note = ready.ok ? "" : t("Basic terminal (no PTY available)");
+      stop = renderBasic(slot, { note: note || t("Basic terminal"), switchToPty: ready.ok ? () => { saveMode("pty"); show(false); } : null });
+      if (!ready.ok && ready.reason) slot.querySelector(".term-mode-note")?.setAttribute("title", ready.reason);
+    }
+  };
+  show();
+  return () => { dead = true; stop(); };
+}
+
+registerInspectorTab({ id: "terminal", title: "Terminal", icon: "terminal", order: 30, render, badge: () => (tabs.some((tab) => tab.running) || ptyRunning() ? "●" : "") });
 
 bus.on("current", () => {
   for (const tab of tabs) if (!tab.lastCommand && !tab.running) tab.cwd = cwdNow();

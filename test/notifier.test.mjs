@@ -82,3 +82,17 @@ test("the Persian language is used once the page reports it", () => {
   notifier.test();
   assert.match(notifier.after(0).items[0].body, /اعلان/);
 });
+
+test("every conversation on screen (main and split pane) counts as watched", () => {
+  const { manager, notifier } = setup();
+  const ask = (id) => manager.emit("session.attention", { sessionId: id, request: { kind: "permission", toolName: "Bash", input: {} } });
+  notifier.setPresence({ focused: true, sessionId: "a", sessionIds: ["a", "b"] });
+  ask("a");
+  ask("b");
+  assert.equal(notifier.after(0).items.length, 0);
+  ask("c");
+  assert.equal(notifier.after(0).items.length, 1);
+  notifier.setPresence({ focused: true, sessionId: "a" }); // an older page reports only one
+  ask("b");
+  assert.equal(notifier.after(0).items.length, 2);
+});

@@ -1,0 +1,31 @@
+/* Claude Code update chip (top bar) and the "Update and relaunch" dialog. */
+.update-chip { flex: none; gap: 5px; max-inline-size: 360px; min-block-size: 26px; padding-inline: 10px; border-radius: 99px; border-color: transparent; background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: .8em; }
+.update-chip[hidden] { display: none; }
+.update-chip:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent); }
+.update-chip.failed { background: var(--warn-soft); color: var(--warn); }
+.update-chip.updating { cursor: progress; }
+.update-chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-inline-size: 0; }
+.update-chip-sep { opacity: .6; }
+.update-chip-act { text-decoration: underline; text-underline-offset: 2px; }
+.update-chip.updating .update-chip-act { text-decoration: none; font-variant-numeric: tabular-nums; }
+@media (max-width: 760px) {
+  .update-chip-text, .update-chip-sep { display: none; }
+}
+
+.upd { display: flex; flex-direction: column; gap: 12px; }
+.upd p { margin: 0; line-height: 1.6; }
+.upd-note { font-size: .86em; }
+.upd-links a { color: var(--accent); }
+.upd-phase { display: flex; align-items: center; gap: 8px; }
+.upd-pct { margin-inline-start: auto; font-variant-numeric: tabular-nums; }
+.upd-bar > i { transition: width .4s ease; }
+.upd-bar.indeterminate > i { inline-size: 35%; animation: upd-slide 1.3s ease-in-out infinite alternate; }
+@keyframes upd-slide { from { margin-inline-start: 0; } to { margin-inline-start: 65%; } }
+@media (prefers-reduced-motion: reduce) { .upd-bar.indeterminate > i { animation: none; inline-size: 100%; opacity: .5; } }
+.upd-result { display: flex; align-items: flex-start; gap: 10px; font-weight: 600; }
+.upd-result svg { margin-block-start: 2px; }
+.upd-result.ok { color: var(--ok); }
+.upd-result.warn { color: var(--warn); }
+.upd-result.error { color: var(--danger); }
+.upd-detail { font-family: var(--font-mono); font-size: .78em; overflow-wrap: anywhere; padding: 6px 8px; border-radius: var(--radius-sm); background: var(--surface-2); }
+.upd-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-block-start: 4px; }

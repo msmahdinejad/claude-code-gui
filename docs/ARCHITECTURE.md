@@ -92,6 +92,7 @@ openSettings(id), openInspector(id), runPrompt(text), fillComposer(text) }`.
 `POST /api/{presence,notify-test,focus}`, `POST /api/shutdown` (stop the server),
 `GET /api/profile`, `POST /api/profile/{test,switch}`, `GET /api/profile/status`, `POST /api/pick-folder`,
 `POST /api/auth/login` (runs the CLI's `auth login` for a profile; `GET /api/auth/login/:id`, `POST …/:id/code|cancel`),
+`/api/pty/*` (real terminal, optional node-pty), `/api/schedule/*` (scheduled tasks), `/api/preview/*` (preview pane), `GET /api/history`,
 `GET /api/update`, `POST /api/update/{check,apply}` (Claude Code auto-update, see `server/lib/claude-updater.mjs`),
 `POST /api/workspaces/new`, `GET /api/features`. Feature modules add more under `server/lib/routes/`.
 
