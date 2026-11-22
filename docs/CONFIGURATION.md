@@ -35,6 +35,8 @@ Precedence, highest first: command-line flags → environment variables → conf
 | `linkBrowser` | `"default"` | Where links clicked in the standalone window (`--app`) open: your system default browser (`"default"`) or Chrome (`"chrome"`). Either way it is a new tab in the browser window you already use, not a new window of the app's private profile. |
 | `autoTitle` | `true` | After the first reply, a short model-written title (one small Haiku request through your profile) becomes the session's name; until then a shortened first prompt is shown. `false` keeps only the shortened prompt (`WHEELHOUSE_AUTO_TITLE=0`). Renaming a session always wins. |
 | `tray.enabled` / `tray.hotkey` / `tray.browserHotkey` | `false` / `Ctrl+Alt+W` / `Ctrl+Alt+Shift+W` | Tray icon and global shortcuts, see [Tray icon and shortcuts](#tray-icon-and-shortcuts). Also `--tray`. |
+| `terminalShell` | platform default | Shell the Terminal panel starts first (`powershell`, `pwsh`, `bash` or `cmd`). Can also be picked in the panel. |
+| `terminalShell` | system default | Shell for the real terminal (`powershell`, `pwsh`, `bash`, `cmd`, or a full path). The terminal's own chooser overrides it per tab. |
 | `defaultProfile` | first profile | Profile used at startup. The one chosen in Settings → Connection is remembered. |
 | `profiles` | one profile running `claude` | See below. |
 
@@ -128,3 +130,20 @@ On Windows, `--tray` (or `"tray": { "enabled": true }`) adds a notification-area
 Windows hides new tray icons in the overflow flyout; drag the icon onto the taskbar to keep it visible. The tray host is a
 small PowerShell script (`server/tray/tray.ps1`), so there is nothing extra to install. Its log is `tray.log` in the data
 directory. macOS and Linux have no tray yet; `--app` and the command palette's *Quit Wheelhouse* work everywhere.
+
+## Settings stored by Wheelhouse itself
+
+Some switches are per user and live in `ui-state.json` in the data directory (`~/.wheelhouse` by default). Change them in
+Settings, or with `PUT /api/prefs`:
+
+| Setting (where) | Default | Meaning |
+|---|---|---|
+| `autoUpdateClaude` (Settings → Updates) | on for new installs | Install a newer Claude Code by itself when no session is working. The update chip is shown either way. |
+| `updateChannel` (Settings → Updates) | `latest` | npm channel followed (`latest` or `stable`). |
+| `scheduledTasksEnabled` (Settings → Scheduled tasks) | `false` | Global switch; nothing runs, not even *Run now*, while it is off. |
+| `resumeInterrupted` (Settings → Resume after restart) | `false` | Continue sessions that were working when Wheelhouse stopped, a few seconds after the next start. |
+| Continue after a usage limit (the banner's switch) | on | Per conversation; sends one *continue* message at the reset time, at most 3 times in a row. |
+
+Besides `ui-state.json`, the data directory holds `resume/` (the list of working sessions), `scheduled-tasks/` (tasks and run
+history) and `tray.log`. Claude Code's own files (sessions, memory, `settings.json`) stay in the profile's config
+directory. The settings pages write only the key you change and leave the rest of those files alone.

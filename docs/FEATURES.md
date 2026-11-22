@@ -17,6 +17,14 @@ Legend: ✅ built and exercised live · 🟡 built, only partly exercised · ❌
 | Sub-agent transcripts, background tasks (stop / background) | ✅ | Tasks tab |
 | Fork from message, rewind files to message | ✅ | Checkpoints tab (rewind tracks Write/Edit only — CLI behaviour) |
 | `/compact` | ✅ | |
+| Images returned by tools (Read on a picture, browser screenshots) with a viewer | ✅ | |
+| PDF (≤10 MB) and text/code (≤500 KB) attachments | 🟡 | |
+| `/goal` chip, background-subagent status strip, Workflow / ReportFindings / Artifact / PushNotification / SendUserFile cards | 🟡 | |
+| API errors as one updating message (status in words, attempt, next retry) | ✅ | |
+| Prompt history search (`Ctrl+R`), `!` local shell mode, session tags | ✅ | |
+| Continue automatically after a usage limit (on by default, max 3 in a row) | 🟡 | tested with injected events, not a real limit |
+| Split view: a second conversation with its own message box and approval cards | ✅ | |
+| Resume sessions interrupted by a restart (off by default) | 🟡 | tested with a fake session manager |
 
 ## Model & modes
 | Feature | Status |
@@ -24,18 +32,21 @@ Legend: ✅ built and exercised live · 🟡 built, only partly exercised · ❌
 | Model picker from the gateway (Opus/Fable/Sonnet/Haiku/custom), live switch | ✅ |
 | Effort levels, extended-thinking toggle | ✅ / 🟡 |
 | Permission modes: ask, accept edits, plan, auto, don't ask, bypass (opt-in) | ✅ / 🟡 (auto, dontAsk, bypass not exercised) |
-| Fast mode | ❌ (use `/fast` in the composer) |
+| Fast mode, ultracode, advisor | 🟡 (*Speed and extras* in the model picker, where the model supports them) |
 
 ## Sessions & projects
 Sessions grouped by project, search, pin, archive, rename, fork, delete, resume, copy ID/resume command, folder picker, draft persistence — ✅.
-Worktrees (`--worktree`) via Advanced → session options — 🟡.
+Worktrees (`--worktree`) via Advanced → session options — 🟡. Listing and removing git worktrees (including `.claude/worktrees/`) in the Changes panel — ✅.
 
 ## Panels (inspector)
-Changes/Git (stage, commit, branches, log, diff unified/split) ✅ · Files (tree, preview, edit/save, @-reference) ✅ · Terminal (non-PTY runner) ✅ ·
+Changes/Git (stage, commit, branches, log, diff unified/split, push, pull fast-forward, stash, PR card via `gh`) ✅ · Files (tree, preview, edit/save, @-reference) ✅ · Terminal (real PTY via optional `node-pty`, basic runner as fallback) ✅ · Preview (local web app, HTML/PDF) ✅ ·
 Context usage ✅ · Usage & rate limits ✅ · Tasks ✅ · Activity (hooks, denials, raw messages, stderr) ✅ · Checkpoints ✅ · MCP ✅ · Extensions overview ✅ · Plugins ✅.
 
 ## Settings
-Permissions rules, env, hooks, memory (CLAUDE.md + rules), output styles, MCP servers, plugins, skills, slash commands, agents, raw settings.json, session start options — ✅ (hook types other than command/prompt via JSON toggle).
+Permissions rules, env, hooks, memory (CLAUDE.md, rules, auto memory), output styles, MCP servers, plugins, skills, slash commands, agents, raw settings.json, session start options — ✅ (hook types other than command/prompt via JSON toggle).
+All 168 keys of the settings reference with search, validation and scopes · keyboard shortcuts (`keybindings.json`) · themes · environment suggestions (349 variables) · diagnostics · scheduled tasks (off by default) · resume after restart (off by default) · Claude Code updates (chip, *Update and relaunch*, optional automatic) — 🟡/✅.
+
+See [GUIDE.md](GUIDE.md) for how to turn each one on.
 
 ## Not built / not applicable
-Claude Desktop cloud sessions, Remote Control, Chrome extension integration, computer use, scheduled tasks UI, PR monitoring, a real PTY terminal (interactive TUI programs), per-hunk staging, signing in (run `claude auth login` in a terminal, or use a connection profile).
+Claude Desktop cloud sessions, Remote Control, computer use, MCP resource listing / `@server:uri` completion (the Agent SDK offers no way to list them), PR monitoring beyond the status card, per-hunk staging, listing an account's *limit resets* (only `/limit-reset` in Claude Code can use them), signing in (run `claude auth login` in a terminal, or use a connection profile).

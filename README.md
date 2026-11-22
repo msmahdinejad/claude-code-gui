@@ -59,19 +59,39 @@ works. It never talks to the model API itself and never alters a request.
   Chrome you already have open (*Claude in Chrome*) instead of letting it start another one.
 
 **Workspace panels**
-- **Changes**: stage, commit, branches, history, unified/split diffs. **Files**: tree, preview, edit, `@`-reference.
-  **Terminal**: streamed command runner. **Context**, **Usage**, **Tasks**, **Activity**, **Checkpoints**.
+- **Changes**: stage, commit, branches, history, unified/split diffs, push / pull / stash, a pull-request card (with the
+  GitHub CLI) and a list of git worktrees you can clean up. **Files**: tree, preview, edit, `@`-reference.
+- **Terminal**: a real pseudo-terminal (colors, interactive programs, tabs, shell chooser; optional `node-pty`).
+  **Preview**: a local web app (or HTML/PDF file) next to the conversation, started from `.claude/launch.json`.
+- **Context**, **Usage**, **Tasks**, **Activity**, **Checkpoints**.
+- **Split view**: a second conversation beside the main one, with its own message box and approval cards.
+
+**Keeping Claude Code current**
+- A chip tells you when a newer Claude Code exists; *Update and relaunch* installs it next to the old one, verifies it
+  and swaps it in (rolling back on failure). Optional automatic updates.
 
 **Configuration, no hand-editing required**
-- Permissions, environment, hooks, memory (`CLAUDE.md`), output styles, MCP servers, plugins, skills, slash commands,
-  agents and the raw `settings.json`, per user / project / local scope.
+- All 168 keys of the official settings reference with search, validation and per-scope editing (user / project /
+  local); permissions, environment variables (349 suggestions), hooks, output styles, MCP servers, plugins, skills,
+  slash commands, agents and the raw `settings.json`.
+- **Memory**: `CLAUDE.md`, path-scoped rules and Claude's own auto memory. **Keyboard shortcuts** (`keybindings.json`) and
+  **themes** editors. **Diagnostics** (`doctor`, `auth status`, `mcp list`).
+- **Scheduled tasks** (off by default, safe modes only), **prompt history** (`Ctrl+R`), a `!` local shell mode, automatic
+  continue after a usage limit, `/limit-reset`, and optional resume of sessions interrupted by a restart.
 
-See [docs/FEATURES.md](docs/FEATURES.md) for the full coverage table, including what is not built.
+Every feature, with screenshots and how to turn it on, is in the **[feature guide](docs/GUIDE.md)**. See
+[docs/FEATURES.md](docs/FEATURES.md) for the full coverage table, including what is not built.
 
 <p align="center">
   <img src="docs/images/chat-rtl-light.png" alt="Right-to-left Persian interface, light theme" width="440">
   <img src="docs/images/settings.png" alt="Settings dialog" width="440">
 </p>
+<p align="center">
+  <img src="docs/screenshots/01-settings-all-keys.jpg" alt="All Claude Code settings with search" width="290">
+  <img src="docs/screenshots/12-terminal.jpg" alt="The real terminal" width="290">
+  <img src="docs/screenshots/16-split-view.jpg" alt="Split view" width="290">
+</p>
+<p align="center"><sub>The screenshots show a throwaway demo project, not a real one.</sub></p>
 
 ## Quick start
 

@@ -33,6 +33,27 @@ Limit resets…*) opens Claude Code in a new terminal window with that command, 
 belong to one account: the resets of a personal account do not apply to a work account; to use those, add a profile
 whose `configDir` is signed in to the personal account.
 
+## The update chip says "close Claude Code"
+*Update and relaunch* swaps the Claude Code folder by renaming it. On Windows a Claude Code window that is open in a
+terminal keeps those files locked, so close it (and any session still running in Wheelhouse is restarted for you) and try
+again. If an update was interrupted, the next start of Wheelhouse restores a consistent install by itself. Settings →
+Updates shows the installed and the latest version and the last error.
+
+## The terminal says "Basic terminal"
+The real terminal needs the optional `node-pty` package. `npm install` builds it where it can (Windows and macOS have
+prebuilt binaries; on Linux it compiles and needs a compiler). If it is missing, the basic command runner is used and
+interactive programs will not work. Run `npm install` again, or `npm install node-pty`, and restart Wheelhouse.
+
+## The preview stays empty
+Only `localhost` / `127.0.0.1` pages can be shown, never Wheelhouse's own port. Check that the dev server is really
+listening on that port and that the preview's port field matches. A relative image or stylesheet of a previewed HTML
+file is not loaded; use a dev server for that.
+
+## A session was cut off by a restart
+See *Settings → Resume after restart*: sessions that were working are listed for a few hours and can be continued with
+one click, or automatically if you turn the switch on. A turn cut off in the middle of a deploy or a push may have stopped
+half-way, so look at those sessions.
+
 ## Requests hang or fail with connection errors
 - A system-wide `HTTPS_PROXY` can break access to internal gateways. Add the host to the profile's `proxyBypass`.
 - Many `claude` processes sharing one config directory may invalidate a shared OAuth login. Close unused sessions and

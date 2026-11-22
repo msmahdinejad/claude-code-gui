@@ -3,6 +3,18 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, minor versions may change the config format).
 
+## [0.8.1] - 2026-11-22
+
+### Added
+- **Resume after restart** (*Settings → Resume after restart*): sessions that were working when Wheelhouse stopped are
+  offered for continuing at the next start (a dialog), and, with the switch on (off by default), sessions interrupted in
+  the last 30 minutes are continued by themselves: at most 3 at once, each once, with one message that asks them to
+  check what already finished. Scheduled runs are never continued this way.
+- A feature guide with screenshots ([docs/GUIDE.md](docs/GUIDE.md)); README, README.fa, FEATURES and CONFIGURATION brought up to date. The screenshots come from a throwaway demo project.
+
+### Changed
+- *Continue automatically after a usage limit* is now **on by default** (switch it off per conversation in the banner).
+
 ## [0.8.0] - 2026-11-20
 
 ### Added
@@ -19,14 +31,6 @@ and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, mi
   its own message box and approval cards, a draggable divider and *Swap*.
 - **Prompt history across sessions** with Ctrl+R, `!` shell mode (runs locally; you choose whether to send the output
   to Claude) and *Continue automatically after a usage limit* (off by default).
-
-- **Resume after restart** (*Settings → Resume after restart*): sessions that were working when Wheelhouse stopped are
-  offered for continuing at the next start (a dialog), and, with the switch on (off by default), sessions interrupted in
-  the last 30 minutes are continued by themselves: at most 3 at once, each once, with one message that asks them to
-  check what already finished. Scheduled runs are never continued this way.
-
-### Changed
-- *Continue automatically after a usage limit* is now **on by default** (switch it off per conversation in the banner).
 
 ### Fixed
 - The Claude Code updater could leave the installed Claude Code broken: when the large platform package could not be

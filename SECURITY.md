@@ -37,7 +37,15 @@ What it does **not** do:
 - It does not sandbox Claude Code. Approving a command lets it run with your privileges.
 - It has no authentication of its own; anyone who can already run code as you on this machine can use it. Do not put it
   behind a reverse proxy or tunnel on a shared or public host.
-- The terminal panel is a command runner for your own commands, with your privileges.
+- The terminal panel is a real shell (a pseudo-terminal) and the `!` message prefix runs a command locally, both with your
+  privileges and only for the page that is open on this machine. Preview frames only `localhost` / `127.0.0.1` (a CSP
+  `frame-src` allows nothing else), never Wheelhouse's own port, and runs project HTML without scripts unless you allow
+  them. Dev servers from `.claude/launch.json` start only after you confirm the command.
+- Scheduled tasks are **off by default**; when on, they run unattended only in `plan`, `acceptEdits`, `dontAsk` or
+  `auto` mode (never bypass), one at a time, with turn and time limits. Resuming interrupted sessions is also off by
+  default and sends one fixed message per session. Both use your account's usage.
+- Updating Claude Code installs the new version next to the old one, checks it and swaps it in; it downloads only the
+  official `@anthropic-ai/claude-code` package through your own npm configuration.
 - Plugins, MCP servers, skills and hooks you install can run code; install only what you trust.
 
 ## Hardening tips
