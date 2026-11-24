@@ -95,11 +95,11 @@ test("outbox: a usage limit holds the queue; at the reset the cut-off turn is co
 test("outbox: with automatic continue off the reset leaves a notice and the queue goes on", async () => {
   const { manager, outbox, sent, setState, cleanup } = setup();
   outbox.setAuto(ID, false);
-  manager.emit("session.limit", { id: ID, info: { status: "rejected", resetsAt: Date.now() + 40 } });
+  manager.emit("session.limit", { id: ID, info: { status: "rejected", resetsAt: Date.now() + 120 } });
   outbox.add(ID, { text: "queued" });
-  await wait(20);
+  await wait(40);
   assert.equal(sent.length, 0);
-  await wait(60);
+  await wait(250);
   assert.deepEqual(sent.map((entry) => entry.text), ["queued"]);
   assert.equal(outbox.view(ID).hold.reset, true, "the 'has reset' notice stays");
   assert.equal(outbox.held(ID), false, "but it holds nothing back");

@@ -131,8 +131,8 @@ once (at most 7 days back). The last 50 runs of each task are kept. Each run use
   turn (**on by default**, at most 3 in a row; switch it off in the banner), and the queued messages follow once that
   turn has finished. *Send now* in the banner skips the wait. All of this runs on the server: no window has to be open.
 - **Status dot**: a session stays orange (working) after its turn ends while subagents it started in the background
-  are still running, and only then turns green; the *finished* notification waits for them too. Background shells and
-  monitors (a dev server, a log watcher) do not count.
+  are still running (subagents, or shells such as a test run), and only then turns green; the *finished* notification
+  waits for them too. Watchers that Claude Code marks as not activity do not count.
 
 ## Real terminal and preview
 

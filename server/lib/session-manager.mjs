@@ -10,9 +10,8 @@ const MAX_BUFFER = 6000;
 const MAX_STREAM_EVENTS = 300;
 const MAX_STDERR_LINES = 300;
 const IDLE_CLOSE_MS = 25 * 60 * 1000;
-// Background tasks that are work of the agent (subagents, workflows, teammates): while one runs the session is still
-// working even though its turn has ended. Shells and monitors (a dev server, a log watcher) can run for hours and are left out.
-const AGENT_TASKS = new Set(["local_agent", "remote_agent", "local_workflow", "in_process_teammate"]);
+// Background tasks keep a session "working" after its turn has ended: subagents, workflows, shells (tests, builds).
+// Like Claude Code's own indicator, tasks it marks `ambient` (watchers, skip-transcript tasks) are not activity.
 const CHROME_HINT =
   "The user wants browser work done in the Chrome they already have open, through the mcp__claude-in-chrome__* tools (reuse an open tab or window where it makes sense). " +
   "Do not start another browser (agent-browser, Playwright, Puppeteer, a new Chrome process) unless the user asks for it. " +
@@ -260,7 +259,7 @@ export class ClaudeSession extends EventEmitter {
       // Subagents / commands that keep running after the turn: the process must not be stopped while they work.
       const tasks = Array.isArray(msg.tasks) ? msg.tasks : [];
       this.backgroundTasks = tasks.length;
-      const agents = tasks.filter((task) => !task.ambient && AGENT_TASKS.has(task.task_type)).length;
+      const agents = tasks.filter((task) => !task.ambient).length;
       if (agents !== this.agentTasks) {
         this.agentTasks = agents;
         this.manager.emit("session.state", this.summary()); // the sidebar keeps showing "working" until they finish

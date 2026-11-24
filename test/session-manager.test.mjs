@@ -114,7 +114,7 @@ function scriptedQuery(messages) {
   };
 }
 
-test("subagents still working after the turn are counted (shells and ambient tasks are not); limits and sends are announced", async () => {
+test("background work after the turn is counted (subagents and shells, not ambient watchers); limits and sends are announced", async () => {
   const tasks = [
     { task_id: "a", task_type: "local_agent", description: "research" },
     { task_id: "b", task_type: "local_bash", description: "dev server" },
@@ -138,12 +138,12 @@ test("subagents still working after the turn are counted (shells and ambient tas
   const session = manager.create({ cwd: process.cwd() });
   await session.sendUser({ text: "hi", source: "outbox" });
   await new Promise((resolve) => setTimeout(resolve, 80));
-  assert.ok(states.includes(1), "one agent task counted");
-  assert.equal(session.agentTasks, 0, "back to zero when the subagent finished");
+  assert.ok(states.includes(2), "the subagent and the shell counted, the ambient watcher not");
+  assert.equal(session.agentTasks, 1, "the shell still runs after the subagent finished");
   assert.equal(session.backgroundTasks, 1, "the shell is still a background task");
   assert.equal(limits[0].status, "rejected");
   assert.equal(limits[1].soft, true);
   assert.deepEqual(sent, ["outbox"]);
-  assert.equal(session.summary().agentTasks, 0);
+  assert.equal(session.summary().agentTasks, 1);
   session.close();
 });

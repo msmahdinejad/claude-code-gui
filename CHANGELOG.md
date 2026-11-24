@@ -5,6 +5,10 @@ and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, mi
 
 ## [Unreleased]
 
+### Fixed
+- A session whose turn ended while a background shell (tests, a build) still runs now also stays "working" (orange),
+  not only for subagents. Only tasks Claude Code itself marks as not activity (watchers) are left out.
+
 ## [0.9.0] - 2026-11-24
 
 ### Added
