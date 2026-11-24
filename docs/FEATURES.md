@@ -45,7 +45,7 @@ Context usage ✅ · Usage & rate limits ✅ · Tasks ✅ · Activity (hooks, de
 
 ## Settings
 Permissions rules, env, hooks, memory (CLAUDE.md, rules, auto memory), output styles, MCP servers, plugins, skills, slash commands, agents, raw settings.json, session start options — ✅ (hook types other than command/prompt via JSON toggle).
-All 168 keys of the settings reference with search, validation and scopes · keyboard shortcuts (`keybindings.json`) · themes · environment suggestions (349 variables) · diagnostics · scheduled tasks (off by default) · resume after restart (off by default) · Claude Code updates (chip, *Update and relaunch*, optional automatic) — 🟡/✅.
+All 168 keys of the settings reference with search, validation and scopes · keyboard shortcuts (`keybindings.json`) · themes · environment suggestions (349 variables) · diagnostics · scheduled tasks (off by default; a task can run inside an existing session through the server-side send queue) · resume after restart (off by default) · Claude Code updates (chip, *Update and relaunch*, optional automatic) — 🟡/✅.
 
 See [GUIDE.md](GUIDE.md) for how to turn each one on.
 

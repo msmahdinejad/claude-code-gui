@@ -88,6 +88,34 @@ Wheelhouse is open.
 2. *New task*: name, prompt, folder, frequency (manual, hourly, daily, weekdays, weekly), time, model, permission mode.
 3. Try *Run now* on a small read-only task first. Every run is a new session and appears in the session list.
 
+### Run inside an existing session
+
+For work that belongs in one conversation (a weekly report that builds on the same session's history and style), choose
+*Where to run → Inside an existing session* in the task editor:
+
+- Pick one of your recent sessions (title and folder are shown) or paste a session id. The task runs in the session's own
+  folder, which Wheelhouse reads from the session. The session must exist and must not be archived: otherwise the task is
+  refused when you save it, and a run that finds the session deleted or archived later is logged as *Failed* with the reason
+  (the task shows *Session missing* or *Session archived*). Nothing is ever started in a new session by mistake.
+- At the scheduled time the prompt is added to that session's **send queue**, exactly like a message you typed while
+  Claude was working. If the session is idle it is sent at once. If Claude is in the middle of a turn, or a usage limit
+  holds the session, the prompt waits in the queue (the *Waiting* badge; the queue is visible in the session) and goes out
+  when the session is free. A closed session is opened again (resumed) to receive it. Nothing is interrupted.
+- A prompt like `/weekly-report team` is sent as typed, so slash commands and skills work.
+- Times are read in the computer's time zone (shown on the page; for example Asia/Tehran). A run that was missed because
+  Wheelhouse was closed is made up once after the restart, like any task (the latest missed time, within 7 days).
+- Two tasks for one session simply wait in the same queue, one after the other. A run is skipped if the same task's previous
+  run is still waiting.
+- The run log records the status and the session id as for any run (*Open session* jumps to it). *Waiting* turns into
+  *Running* when the prompt is sent and into *Succeeded* or *Failed* when Claude's turn ends. A turn that has not ended after
+  60 minutes is logged as *Timed out* (the session is left alone); a prompt that waited 12 hours is withdrawn. *Stop*
+  removes a waiting prompt, or interrupts the turn if it is already working.
+- The queue is kept by the server, so a waiting prompt survives a restart of Wheelhouse and its run carries on. The
+  session keeps its own model and permission mode (the task's model, permission mode, turn limit and worktree settings
+  do not apply), and nobody refuses permission requests for you: if Claude asks, the request waits in the session.
+- Queues drain under the connection profile that was active when the prompt was added, so keep the profile that owns the
+  session active (for example `work`) when the task fires.
+
 Safety: only `plan` (default), `acceptEdits`, `dontAsk` and `auto` are accepted; bypass and ask-every-time are refused for
 unattended runs. One run at a time, at most 40 turns per run (configurable up to 200), a run is stopped after 60
 minutes, and a permission request nobody answers within 10 minutes is refused. After a restart a missed run is made up

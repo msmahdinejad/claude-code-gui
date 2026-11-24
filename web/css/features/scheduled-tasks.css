@@ -18,7 +18,7 @@
 .st-run .btn { margin-inline-start: auto; display: inline-flex; align-items: center; gap: 4px; }
 
 .st-form .st-prompt { min-block-size: 130px; font-family: inherit; }
-.st-form .field[hidden], .st-form .banner[hidden] { display: none; }
+.st-form [hidden] { display: none !important; }
 .st-form .field small { display: block; }
 .st-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0 14px; }
 .st-folder-row { display: flex; align-items: center; gap: 8px; }
@@ -28,3 +28,5 @@
 .st-check input { margin-block-start: 3px; }
 .st-check small { display: block; color: var(--text-3); }
 .st-dialog .banner { margin-block-end: 10px; }
+.st-last-error { display: flex; align-items: flex-start; gap: 6px; color: var(--danger); font-size: .86em; overflow-wrap: anywhere; }
+.st-last-error svg { flex: none; margin-block-start: 2px; }

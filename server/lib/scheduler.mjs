@@ -3,7 +3,9 @@
 // Modelled on Claude Code Desktop's scheduled tasks: a task has a name, a prompt, a folder, a frequency (manual, hourly,
 // daily, weekdays, weekly), a model, a permission mode and optional worktree isolation. Runs happen only while Wheelhouse
 // is running; after a restart one run is caught up for the most recent missed time (not older than 7 days). Every run is
-// a new session, kept in a run log (last 50 per task). Tasks live in <dataDir>/scheduled-tasks/<id>.json.
+// a new session, kept in a run log (last 50 per task), unless the task names a session (`sessionId`): then the prompt is
+// delivered to that existing session through the server-side send queue (outbox.mjs), like a message typed there.
+// Tasks live in <dataDir>/scheduled-tasks/<id>.json.
 //
 // The first half of this file is pure (validation, next/previous run in local time); the second half is the engine
 // (persistence, a one-run-at-a-time queue, the session plumbing). Both take their clock and dependencies as arguments.
@@ -26,6 +28,8 @@ export const HISTORY_LIMIT = 50;
 const CATCHUP_AFTER_MS = 2 * 60 * 1000; // later than this after its time, a run counts as a catch-up
 const RUN_STATUSES = ["queued", "running", "success", "failed", "timeout", "stopped", "skipped"];
 const ID_PATTERN = /^t-[a-f0-9]{12}$/;
+const SESSION_ID = /^[A-Za-z0-9_-]{1,80}$/; // what the send queue accepts as a session id
+const MAX_WAIT_MS = 12 * 60 * 60 * 1000; // an in-session prompt still waiting after this long is withdrawn (a stale report helps nobody)
 
 export class SchedulerError extends Error {
   constructor(message, status = 400) {
@@ -61,16 +65,19 @@ export function validateTask(input) {
   if (!PERMISSION_MODES.includes(permissionMode)) throw new SchedulerError(`The permission mode must be one of: ${PERMISSION_MODES.join(", ")}`);
   const turns = input.maxTurns === undefined || input.maxTurns === "" || input.maxTurns === null ? DEFAULT_MAX_TURNS : Number(input.maxTurns);
   if (!Number.isInteger(turns) || turns < 1 || turns > MAX_TURNS_LIMIT) throw new SchedulerError(`The turn limit must be a whole number from 1 to ${MAX_TURNS_LIMIT}`);
+  const sessionId = input.sessionId === undefined || input.sessionId === null ? "" : String(input.sessionId).trim();
+  if (sessionId && !SESSION_ID.test(sessionId)) throw new SchedulerError("The session id is not valid");
   return {
     name,
     prompt,
+    sessionId,
     cwd: resolve(cwdRaw),
     frequency,
     time,
     weekday: weekdayRaw,
     model: modelRaw === "default" ? "" : modelRaw,
     permissionMode,
-    worktree: input.worktree === true,
+    worktree: input.worktree === true && !sessionId, // an existing session cannot move into a worktree
     maxTurns: turns,
   };
 }
@@ -178,11 +185,17 @@ export class TaskScheduler {
    * enabled(): the global "Scheduled tasks enabled" switch
    * annotate(sessionId, meta): remember a run's session name for the session list (store.patchSessionMeta)
    * now():     clock in ms (tests inject their own)
+   * outbox():   the send queue (Outbox) for tasks that run inside an existing session
+   * ensureSession(id, cwd): makes the server know the session (no process yet) so pages show what waits for it
+   * waitMs:     how long an in-session prompt may wait (usage limit, busy session) before it is withdrawn
+   * lookupSession(id): { cwd, archived, title } for a session that exists (open, or with a transcript), null when it does
+   *             not; without it sessions are not checked (tests)
    */
   constructor({
     dir, manager, config = {}, enabled = () => false, annotate = async () => {}, now = Date.now,
     isDir = isDirectory, exists = pathExists,
     runTimeoutMs = 60 * 60 * 1000, stallMs = 10 * 60 * 1000, tickMs = 60 * 1000, historyLimit = HISTORY_LIMIT,
+    outbox = () => null, ensureSession = () => {}, waitMs = MAX_WAIT_MS, lookupSession = null,
   }) {
     this.dir = dir;
     this.manager = manager;
@@ -196,6 +209,11 @@ export class TaskScheduler {
     this.stallMs = stallMs;
     this.tickMs = tickMs;
     this.historyLimit = historyLimit;
+    this.outbox = outbox;
+    this.ensureSession = ensureSession;
+    this.waitMs = waitMs;
+    this.lookupSession = lookupSession;
+    this.watchers = new Map(); // run id -> { stop(), detach() } for runs inside an existing session
     this.tasks = new Map();
     this.queue = []; // { taskId, runId }
     this.current = null; // { taskId, runId, stop(outcome) }
@@ -216,8 +234,11 @@ export class TaskScheduler {
         if (!ID_PATTERN.test(String(raw.id)) || `${raw.id}.json` !== file) continue;
         const fields = validateTask(raw); // a hand-edited file with a forbidden mode is not loaded, never run
         const runs = (Array.isArray(raw.runs) ? raw.runs : []).filter((run) => run && RUN_STATUSES.includes(run.status)).slice(0, this.historyLimit);
+        const waiting = [];
         for (const run of runs) {
-          if (run.status === "queued" || run.status === "running") {
+          if (run.status === "queued" && fields.sessionId && run.outboxItemId && this.stillQueued(run)) {
+            waiting.push(run); // the prompt is still in the send queue, which survived the restart: keep waiting for it
+          } else if (run.status === "queued" || run.status === "running") {
             run.status = "failed"; // the process that owned it is gone
             run.error = "Wheelhouse was closed before this run finished";
             run.endedAt = run.endedAt || Number(raw.updatedAt) || this.now();
@@ -230,6 +251,7 @@ export class TaskScheduler {
           lastScheduledFor: Number(raw.lastScheduledFor) || 0,
           runs,
         });
+        for (const run of waiting) this.attach(this.tasks.get(raw.id), run);
       } catch (error) {
         console.warn(`[wheelhouse] scheduled task file ${file} was not loaded: ${error.message}`);
       }
@@ -270,13 +292,15 @@ export class TaskScheduler {
     const active = this.activeRunOf(task.id);
     const live = this.enabled() && task.enabled;
     return {
-      id: task.id, name: task.name, prompt: task.prompt, cwd: task.cwd, frequency: task.frequency, time: task.time, weekday: task.weekday,
+      id: task.id, name: task.name, prompt: task.prompt, sessionId: task.sessionId, cwd: task.cwd, frequency: task.frequency, time: task.time, weekday: task.weekday,
       model: task.model, permissionMode: task.permissionMode, worktree: task.worktree, maxTurns: task.maxTurns, enabled: task.enabled,
       createdAt: task.createdAt, updatedAt: task.updatedAt,
       nextRun: live ? nextRun(task, now) : null,
       active: active ? active.status : null,
+      held: Boolean(active?.status === "queued" && task.sessionId && this.outbox()?.held(task.sessionId)), // waits for a usage limit to reset
       lastRun: task.runs.find((run) => run.status !== "queued" && run.status !== "running") || null,
       folderMissing: !(await this.isDir(task.cwd)),
+      session: task.sessionId ? await this.sessionState(task.sessionId) : null,
       ...(runs ? { runs: task.runs } : {}),
     };
   }
@@ -286,8 +310,18 @@ export class TaskScheduler {
     return Promise.all(tasks.map((task) => this.view(task)));
   }
 
+  /** What a task that names a session needs to show: is it still there? (state: ok, missing or archived) */
+  async sessionState(id) {
+    if (!this.lookupSession) return { state: "ok", title: "" };
+    const found = await Promise.resolve(this.lookupSession(id)).catch(() => undefined);
+    if (found === undefined) return { state: "ok", title: "" }; // could not tell: not reported as a problem
+    if (!found) return { state: "missing", title: "" };
+    return { state: found.archived ? "archived" : "ok", title: found.title || "" };
+  }
+
   status() {
     return {
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, // schedule times are read in this zone (the computer's)
       enabled: Boolean(this.enabled()),
       running: this.current ? { taskId: this.current.taskId, runId: this.current.runId } : null,
       queued: this.queue.length,
@@ -304,8 +338,23 @@ export class TaskScheduler {
     if (fields.worktree && !(await inGitRepo(fields.cwd, this.exists))) throw new SchedulerError("A worktree needs a folder that is a Git repository");
   }
 
+  /**
+   * A task that names a session needs that session to exist, and runs in the session's own folder (a closed session is
+   * resumed there). A task whose session has since gone stays editable: the check is only for a session newly chosen.
+   */
+  async withSession(input, previous = null) {
+    const id = input?.sessionId === undefined || input?.sessionId === null ? "" : String(input.sessionId).trim();
+    if (!id || !SESSION_ID.test(id) || !this.lookupSession) return input;
+    const found = await Promise.resolve(this.lookupSession(id)).catch(() => undefined);
+    if (previous?.sessionId === id) return found?.cwd ? { ...input, cwd: found.cwd } : input;
+    if (found === undefined) return input;
+    if (!found) throw new SchedulerError("The session was not found");
+    if (found.archived) throw new SchedulerError("The session is archived: restore it first or choose another");
+    return found.cwd ? { ...input, cwd: found.cwd } : input;
+  }
+
   async create(input) {
-    const fields = validateTask(input);
+    const fields = validateTask(await this.withSession(input));
     await this.checkFields(fields);
     const now = this.now();
     const task = { id: `t-${randomUUID().replaceAll("-", "").slice(0, 12)}`, ...fields, enabled: input.enabled !== false, createdAt: now, updatedAt: now, scheduleBaseline: now, lastScheduledFor: 0, runs: [] };
@@ -316,7 +365,7 @@ export class TaskScheduler {
 
   async update(id, input) {
     const task = this.task(id);
-    const fields = validateTask({ ...task, ...input });
+    const fields = validateTask(await this.withSession({ ...task, ...input }, task));
     await this.checkFields(fields);
     const rescheduled = ["frequency", "time", "weekday"].some((key) => fields[key] !== task[key]);
     Object.assign(task, fields, { updatedAt: this.now() });
@@ -366,6 +415,11 @@ export class TaskScheduler {
     }
     const run = { id: randomUUID().slice(0, 8), trigger, scheduledFor, queuedAt: this.now(), startedAt: null, endedAt: null, status: "queued", sessionId: null, error: null };
     const saved = this.addRun(task, run);
+    if (task.sessionId) {
+      // Inside an existing session: the send queue does the waiting, so this must not hold the one run slot for hours.
+      this.deliver(task, run).catch((error) => console.warn(`[wheelhouse] scheduled run could not be delivered: ${error.message}`));
+      return saved.then(() => run);
+    }
     this.queue.push({ taskId: task.id, runId: run.id });
     this.pump();
     return saved.then(() => run);
@@ -381,6 +435,16 @@ export class TaskScheduler {
   /** Stop the run that is working, or take a waiting one out of the queue. */
   stopRun(id, { quiet = false } = {}) {
     const task = this.task(id);
+    const inSession = task.sessionId ? this.activeRunOf(id) : null;
+    if (inSession) {
+      const watcher = this.watchers.get(inSession.id);
+      if (watcher) watcher.stop().catch(() => {});
+      else {
+        Object.assign(inSession, { status: "stopped", endedAt: this.now() }); // not handed to the send queue yet
+        if (!quiet) this.save(task);
+      }
+      return true;
+    }
     if (this.current?.taskId === id) {
       this.current.stop({ status: "stopped", error: null });
       return true;
@@ -531,6 +595,137 @@ export class TaskScheduler {
     } catch { /* already closed */ }
   }
 
+  // ---- runs inside an existing session ----
+  /** Is this run's prompt still waiting in (or being sent from) the send queue? */
+  stillQueued(run) {
+    const box = this.outbox()?.box(run.sessionId);
+    return Boolean(box && (box.items.some((item) => item.id === run.outboxItemId) || box.inflight?.id === run.outboxItemId));
+  }
+
+  /** Hand the prompt to the session's send queue. From there it is sent when the session is free and no usage limit holds it. */
+  async deliver(task, run) {
+    const fail = (status, error) => this.finishRun(task, run, { status, error });
+    const outbox = this.outbox();
+    if (!this.enabled()) return fail("skipped", "Scheduled tasks were switched off");
+    if (!outbox) return fail("failed", "The message queue is not available");
+    // The session is looked at again on every run: it may have been deleted or archived since the task was saved, and a
+    // send to an unknown id would quietly start a brand new session instead.
+    const found = this.lookupSession ? await Promise.resolve(this.lookupSession(task.sessionId)).catch(() => undefined) : undefined;
+    if (found === null) return fail("failed", "The session was not found (deleted, or it belongs to another connection profile)");
+    if (found?.archived) return fail("failed", "The session is archived: restore it or choose another");
+    const cwd = found?.cwd || task.cwd;
+    if (!(await this.isDir(cwd))) return fail("failed", `The folder does not exist: ${cwd}`);
+    if (run.status !== "queued") return undefined; // stopped while the session was being looked at
+    let item;
+    try {
+      this.ensureSession(task.sessionId, cwd);
+      item = outbox.add(task.sessionId, { text: task.prompt, cwd });
+    } catch (error) {
+      return fail("failed", error.message);
+    }
+    Object.assign(run, { sessionId: task.sessionId, outboxItemId: item.id });
+    this.attach(task, run); // before anything is awaited: the queue may send it at once
+    return this.save(task);
+  }
+
+  /**
+   * Follow a prompt that was handed to the send queue: waiting (run status "queued"), then sent (status "running", ends with
+   * the turn's result). A timeout never interrupts the session; only the Stop button does.
+   */
+  attach(task, run) {
+    const outbox = this.outbox();
+    const id = run.sessionId;
+    const itemId = run.outboxItemId;
+    let phase = "waiting";
+    let live = null;
+    let timer = null;
+    const cleanup = () => {
+      clearTimeout(timer);
+      outbox.off("sent", onSent);
+      outbox.off("changed", onChanged);
+      outbox.off("forgotten", onForgotten);
+      live?.off("event", onEvent);
+      this.watchers.delete(run.id);
+    };
+    const end = async (outcome) => {
+      if (phase === "done") return;
+      phase = "done";
+      cleanup();
+      await this.finishRun(task, run, outcome);
+      this.manager.emit?.("sessions.changed");
+    };
+    const withdraw = () => { // take the prompt back out of the queue without our own listener taking that for someone else's doing
+      outbox.off("changed", onChanged);
+      outbox.remove(id, itemId);
+    };
+    const arm = (ms, expire) => {
+      clearTimeout(timer);
+      timer = setTimeout(expire, Math.max(0, ms));
+      timer.unref?.();
+    };
+    const giveUp = () => {
+      if (phase === "waiting") {
+        withdraw();
+        end({ status: "timeout", error: "The message waited too long to be sent, so it was withdrawn" });
+      } else {
+        end({ status: "timeout", error: "The turn did not finish in time; the session was left as it is" });
+      }
+    };
+    const onEvent = ({ msg }) => {
+      if (!msg) return;
+      if (msg.type === "result") {
+        const failed = Boolean(msg.is_error);
+        end({ status: failed ? "failed" : "success", error: failed ? describeResult(msg) : null, turns: msg.num_turns, costUsd: msg.total_cost_usd });
+      } else if (msg.type === "wh_closed") {
+        end({ status: "failed", error: "Claude Code stopped before the run finished" });
+      }
+    };
+    const onSent = (sessionId, sentItem) => {
+      if (phase !== "waiting" || sessionId !== id || sentItem !== itemId) return;
+      phase = "running";
+      run.startedAt = this.now();
+      run.status = "running";
+      this.save(task);
+      live = this.manager.get?.(id) || null;
+      if (!live) {
+        end({ status: "failed", error: "The session is not open" });
+        return;
+      }
+      live.on("event", onEvent);
+      arm(this.runTimeoutMs, giveUp);
+      this.manager.emit?.("sessions.changed");
+    };
+    const onChanged = (changedId) => {
+      if (phase !== "waiting" || changedId !== id) return;
+      if (!this.stillQueued(run)) { // not sent (that is onSent, which runs first) and no longer waiting: someone removed it
+        end({ status: "stopped", error: "The message was removed from the queue" });
+        return;
+      }
+      const box = outbox.box(id);
+      if (box?.paused && box.error) { // sending failed again and again (or a restart cut it off): never sent behind anyone's back
+        const reason = box.error.message; // removing the message clears the box's error
+        withdraw();
+        end({ status: "failed", error: `The message could not be sent: ${reason}`.slice(0, 500) });
+      }
+    };
+    const onForgotten = (forgottenId) => { // the session was deleted: its queue went with it
+      if (phase === "waiting" && forgottenId === id) end({ status: "failed", error: "The session was deleted" });
+    };
+    outbox.on("sent", onSent);
+    outbox.on("changed", onChanged);
+    outbox.on("forgotten", onForgotten);
+    arm(run.queuedAt + this.waitMs - this.now(), giveUp);
+    this.watchers.set(run.id, {
+      detach: cleanup,
+      stop: async () => {
+        if (phase === "waiting") withdraw();
+        else if (phase === "running") await Promise.resolve(live?.interrupt?.()).catch(() => {});
+        await end({ status: "stopped", error: null });
+      },
+    });
+    onChanged(id); // a prompt that a restart cut off is given up on at once
+  }
+
   // ---- the clock ----
   /** Called every minute and once at start: fire what is due. */
   async tick() {
@@ -572,6 +767,7 @@ export class TaskScheduler {
   shutdown() {
     this.stop();
     this.queue = [];
+    for (const watcher of [...this.watchers.values()]) watcher.detach(); // what still waits in the send queue is kept
     this.current?.stop({ status: "stopped", error: "Wheelhouse was closed" });
   }
 }
