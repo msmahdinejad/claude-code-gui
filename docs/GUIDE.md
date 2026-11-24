@@ -151,6 +151,43 @@ once (at most 7 days back). The last 50 runs of each task are kept. Each run use
   phone. Only `localhost`/`127.0.0.1` can be framed (a CSP `frame-src` allows nothing else), never Wheelhouse's own
   port, and HTML files run without scripts unless you tick *Allow scripts*.
 
+## File links and the file editor
+
+Every file path Claude mentions is a link (in answers, markdown links, tool cards), as in Claude Desktop. Wheelhouse
+first asks the server which paths really exist, so prose like `and/or` or a missing file never becomes a link.
+
+- **Click** opens the file beside the chat: HTML and PDF of the project in **Preview**, artifacts in **Artifacts**,
+  everything else in **Files** (at the mentioned line, e.g. `src/app.js:42`). `Ctrl`+click opens it in your editor.
+- **Right click** shows Claude Desktop's menu: *Attach as context* (adds `@path` to the message), *Open in editor*
+  (VS Code, Cursor or Windsurf; set `editor` in the config for another one), *Show in File Explorer / Finder*,
+  *Open in default app* (documents and media only), and *Copy* the absolute path, relative path or file name.
+- In **Files**, *Edit* turns on a highlighted editor (`Tab`/`Shift+Tab` indent, `Ctrl+S` saves). Files outside the
+  project folder are read-only. If the file changed on disk after you opened it (Claude edited it, for example), saving
+  asks: *Keep editing*, *Discard my edits* (load the disk version) or *Overwrite*.
+
+![File link menu](screenshots/17-file-links-menu.png)
+![Editor](screenshots/18-files-editor.png)
+![Changed on disk](screenshots/19-save-conflict.png)
+
+## Artifacts
+
+Ask Claude for a page, dashboard, chart, diagram or document and it appears in the **Artifacts** tab, like artifacts in
+Claude Desktop. How it works: with *Settings → Model & behavior → Artifacts* on (default), Claude is told to write each
+deliverable as one self-contained file in `.wheelhouse/artifacts/` of the project (`.html`, `.svg`, `.md` or `.mmd`
+for Mermaid) and to edit the same file to revise it. Every new content is kept as a version (up to 50), so you can
+switch between versions, compare, and *Make this the newest* to go back. `.wheelhouse/` is kept out of `git status`.
+
+- HTML runs in a sandbox: no network, no access to Wheelhouse, its storage or its API. For charts Claude can use the
+  bundled Chart.js (`<script src="/vendor/chart.umd.js">`).
+- *Open as artifact* on an `html`, `svg` or `mermaid` code block in a reply turns that block into an artifact.
+- The panel opens by itself when Claude writes an artifact while working (turn off with *Open new artifacts
+  automatically*). *Ask Claude to change it* puts the file into the message box.
+- Claude Code's own `Artifact` tool publishes to claude.ai (needs a claude.ai account); the Artifacts panel is local and
+  works with any connection profile.
+
+![Artifact versions](screenshots/20-artifact-versions.png)
+![Markdown with Mermaid](screenshots/21-artifact-markdown-mermaid.png)
+
 ## Split view
 
 ![Two conversations side by side](screenshots/16-split-view.jpg)
