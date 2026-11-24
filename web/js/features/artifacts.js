@@ -183,13 +183,15 @@ async function remove(name) {
   }
 }
 
-function itemMenu(anchor, item) {
+/** The menu of an artifact; `shown` is the version on screen (detail view), otherwise the newest one is meant. */
+function itemMenu(anchor, item, shown = null) {
+  const target = shown || { ...item, latest: true };
   menu(anchor, [
-    { label: t("Open"), icon: "eye", onClick: () => select(item.name) },
+    shown ? null : { label: t("Open"), icon: "eye", onClick: () => select(item.name) },
     { label: t("Ask Claude to change it"), icon: "message-square", onClick: () => askClaude(item) },
     "-",
-    { label: t("Open in browser"), icon: "external", onClick: () => openInBrowser({ ...item, latest: true }) },
-    { label: t("Download"), icon: "download", onClick: () => download({ ...item, latest: true }) },
+    item.kind === "html" || item.kind === "svg" ? { label: t("Open in browser"), icon: "external", onClick: () => openInBrowser(target) } : null,
+    { label: t("Download"), icon: "download", onClick: () => download(target) },
     { label: t("Copy path"), icon: "copy", onClick: () => copyText(`.wheelhouse/artifacts/${item.name}`) },
     "-",
     { label: t("Delete"), icon: "trash", danger: true, onClick: () => remove(item.name) },
@@ -267,7 +269,9 @@ function drawDetail() {
     ibtn(document.documentElement.dir === "rtl" ? "chevron-right" : "chevron-left", t("All artifacts"), back, { size: 15 }),
     h(`span.art-icon.k-${doc?.kind || "html"}`, icon(kind.icon, 15)),
     h("strong.art-title.grow", { dir: "ltr", title: A.selected }, A.selected),
-    doc ? ibtn("more-horizontal", t("More"), (event) => itemMenu(event.currentTarget, { ...doc, name: doc.name }), { size: 15 }) : null,
+    doc ? ibtn("copy", t("Copy"), () => copyText(doc.content), { size: 15 }) : null,
+    doc && (doc.kind === "html" || doc.kind === "svg") ? ibtn("external", t("Open in browser"), () => openInBrowser(doc), { size: 15 }) : null,
+    doc ? ibtn("more-horizontal", t("More"), (event) => itemMenu(event.currentTarget, doc, doc), { size: 15 }) : null,
   );
   if (!doc) {
     ui.root.replaceChildren(head, A.docError ? errorBox(A.docError, () => loadDoc(A.selected)) : loadingBox());
@@ -276,12 +280,8 @@ function drawDetail() {
   const bar = h(
     "div.art-bar",
     versionPicker(doc),
-    segmented([["view", t("Preview")], ["source", t("Source")]], A.mode, (mode) => { A.mode = mode; draw(); }),
     h("span.grow"),
-    ibtn("copy", t("Copy"), () => copyText(doc.content), { size: 15 }),
-    ibtn("download", t("Download"), () => download(doc), { size: 15 }),
-    doc.kind === "html" || doc.kind === "svg" ? ibtn("external", t("Open in browser"), () => openInBrowser(doc), { size: 15 }) : null,
-    ibtn("message-square", t("Ask Claude to change it"), () => askClaude(doc), { size: 15 }),
+    segmented([["view", t("Preview")], ["source", t("Source")]], A.mode, (mode) => { A.mode = mode; draw(); }),
   );
   const notes = [];
   if (!doc.latest) notes.push(h("div.banner.info.art-note", icon("history", 14), h("span.grow", t("You are looking at version {n}, not the newest one.", { n: doc.version })), h("button.btn.small", { type: "button", onclick: () => restore(doc) }, t("Make this the newest"))));

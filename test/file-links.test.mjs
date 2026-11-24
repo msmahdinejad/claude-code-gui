@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { createServer } from "node:net";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -198,16 +198,20 @@ test("every revision Claude writes is stored as a version, even when nobody open
     manager.emit("session.state", { id: "s1" });
     manager.emit("session.state", { id: "s1" }); // followed once only
     const file = join(proj, ".wheelhouse", "artifacts", "chart.html");
+    const get = routes.find((r) => r.method === "GET" && r.path === "/api/artifacts/get");
+    const indexFile = () => { try { return JSON.parse(readFileSync(join(dir, "data", "artifact-versions", readdirSync(join(dir, "data", "artifact-versions"))[0], "chart.html", "index.json"), "utf8")).versions.length; } catch { return 0; } };
+    let expected = 0;
     const turn = async (id, content) => {
+      expected += 1;
       live.emit("event", { msg: { type: "assistant", message: { content: [{ type: "tool_use", id, name: "Write", input: { file_path: file } }] } } });
       writeFileSync(file, content);
       live.emit("event", { msg: { type: "user", message: { content: [{ type: "tool_result", tool_use_id: id }] } } });
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      // the snapshot runs asynchronously: wait for it (a loaded test machine can be slow), but never longer than 10 s
+      for (let i = 0; i < 200 && indexFile() < expected; i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
     };
     await turn("t1", "<p>one</p>");
     await turn("t2", "<p>two!</p>");
     await turn("t3", "<p>three!!</p>");
-    const get = routes.find((r) => r.method === "GET" && r.path === "/api/artifacts/get");
     const doc = await get.handler({ query: new URLSearchParams({ cwd: proj, name: "chart.html", version: "1" }) });
     assert.equal(doc.content, "<p>one</p>");
     assert.deepEqual(doc.versions.map((v) => v.n), [1, 2, 3]);

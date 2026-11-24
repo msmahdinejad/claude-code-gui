@@ -4,14 +4,14 @@
 .file-link { cursor: pointer; color: var(--accent); text-decoration: none; border-radius: 4px; unicode-bidi: isolate; }
 .file-link:hover { text-decoration: underline; text-underline-offset: 2px; }
 .file-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-code.file-link { color: var(--accent); }
+code.file-link { color: var(--accent); white-space: nowrap; }
 code.file-link::before { content: ""; display: inline-block; inline-size: .8em; block-size: .8em; margin-inline-end: 4px; vertical-align: -1px; opacity: .8;
   background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 2v6h6'/%3E%3C/svg%3E") center / contain no-repeat;
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 2v6h6'/%3E%3C/svg%3E") center / contain no-repeat; }
 a.file-missing { color: var(--text-2); text-decoration: underline dotted; cursor: default; }
 
 /* ---- code editor (Files tab) ---- */
-.ce { position: relative; flex: 1; min-height: 360px; display: flex; overflow: hidden; background: var(--code-bg); color: var(--code-text); font-family: var(--font-mono); font-size: .78em; line-height: 1.55; }
+.ce { position: relative; flex: 1; min-height: max(360px, calc(100vh - 150px)); display: flex; overflow: hidden; background: var(--code-bg); color: var(--code-text); font-family: var(--font-mono); font-size: .78em; line-height: 1.55; }
 .ce-gutter { flex: none; inline-size: 48px; overflow: hidden; padding-block: 8px; border-inline-end: 1px solid var(--line); color: var(--text-3); text-align: end; user-select: none; }
 .ce-numbers { white-space: pre; padding-inline-end: 10px; opacity: .75; will-change: transform; }
 .ce-main { position: relative; flex: 1; min-width: 0; overflow: hidden; }
@@ -66,3 +66,10 @@ a.file-missing { color: var(--text-2); text-decoration: underline dotted; cursor
 .art-md .art-diagram { margin-block: 10px; border: 1px solid var(--line); border-radius: var(--radius); }
 .art-source { flex: 1; margin: 0; padding: 12px; overflow: auto; font-family: var(--font-mono); font-size: .78em; line-height: 1.55; background: var(--code-bg); color: var(--code-text); white-space: pre; }
 .art-foot { padding: 0 12px 10px; font-size: .74em; }
+
+/* "Open as artifact" sits next to "Copy" at the end of a code block header. */
+.code-head [data-artifact-open] { margin-inline-start: auto; display: inline-flex; align-items: center; gap: 4px; color: var(--accent); }
+.code-head [data-artifact-open] + [data-copy-code] { margin-inline-start: 4px; }
+[dir="rtl"] .art-name { text-align: right; }
+/* Diagrams keep a left-to-right base direction (labels such as ".wheelhouse/artifacts" would flip in RTL); Persian labels still read right to left. */
+.art-diagram, .art-mermaid, .ws-mermaid { direction: ltr; }
