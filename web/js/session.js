@@ -156,6 +156,7 @@ export async function loadConversation(id, cwd) {
     for (const request of snap.live.pending || []) conv.requests.set(request.id, request);
   } else {
     conv.state = "closed";
+    if (snap.outbox) app.live.set(id, { id, state: "closed", alive: false, outbox: snap.outbox }); // messages still waiting
   }
   app.convs.set(id, conv);
   streamPosition.delete(id);

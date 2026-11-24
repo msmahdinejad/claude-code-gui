@@ -3,6 +3,7 @@ import { h, ibtn, menu, formatTime, baseName, copyText, shortPath, debounce } fr
 import { icon } from "../core/icons.js";
 import { t } from "../core/i18n.js";
 import { app, bus, setPrefs } from "../core/state.js";
+import { shownState } from "../core/outbox.js";
 
 import { isScratchCwd, newSession, openSession, promptRename, pinSession, archiveSession, deleteSession, forkFrom, promptTag, tagSession } from "../session.js";
 import { openSettings } from "./settings.js";
@@ -72,7 +73,7 @@ export function mountSidebar(root) {
     if (filter === "archived") return session.archived;
     if (session.archived) return false;
     if (filter === "pinned" && !session.pinned) return false;
-    if (filter === "running" && !["running", "requires_action"].includes(app.live.get(session.id)?.state || session.state)) return false;
+    if (filter === "running" && !["running", "requires_action"].includes(shownState(session.id, session.state))) return false;
     if (tagFilter && session.tag !== tagFilter) return false;
     if (query) {
       const hay = `${session.title} ${session.firstPrompt || ""} ${session.cwd || ""} ${session.gitBranch || ""} ${session.tag || ""}`.toLowerCase();
@@ -115,7 +116,7 @@ export function mountSidebar(root) {
 
   function item(session) {
     const live = app.live.get(session.id);
-    const state = live?.state || session.state || "closed";
+    const state = shownState(session.id, session.state || "closed"); // subagents still working keep it "running"
     const pending = live?.pending?.length || session.pending || 0;
     const row = h(
       `div.sb-item${session.id === app.currentId ? ".active" : ""}${session.id === app.splitId ? ".in-split" : ""}`,

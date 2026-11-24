@@ -236,3 +236,5 @@ fieldset.q legend { font-weight: 600; padding: 0; margin-bottom: 4px; }
 .limit-reset-kinds { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
 .limit-reset-kinds .picker-item { align-items: center; }
 .limit-reset-kinds .primary-item { border: 1px solid var(--line); margin-bottom: 4px; }
+.queue-item.queue-error { color: var(--warn); background: var(--warn-soft); }
+.queue-item.queue-error .btn { flex: none; }

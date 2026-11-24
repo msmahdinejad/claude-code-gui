@@ -12,7 +12,7 @@ Legend: ✅ built and exercised live · 🟡 built, only partly exercised · ❌
 | AskUserQuestion forms, plan approval (ExitPlanMode), MCP elicitation, generic dialogs | ✅/🟡 | elicitation & dialogs not exercised |
 | Image attach / paste / drag-drop | ✅ | model saw the image |
 | `@file` mentions, `/` command & skill popup | ✅ | |
-| Message queue while busy, send-now (interrupt), Esc to stop | ✅ | |
+| Message queue while busy, kept by the server (survives restarts, sent when the conversation is not open), edit / send-now (interrupt) / remove, Esc to stop | ✅ | |
 | Prompt suggestions, voice dictation (fa-IR) | 🟡 | |
 | Sub-agent transcripts, background tasks (stop / background) | ✅ | Tasks tab |
 | Fork from message, rewind files to message | ✅ | Checkpoints tab (rewind tracks Write/Edit only — CLI behaviour) |
@@ -22,7 +22,8 @@ Legend: ✅ built and exercised live · 🟡 built, only partly exercised · ❌
 | `/goal` chip, background-subagent status strip, Workflow / ReportFindings / Artifact / PushNotification / SendUserFile cards | 🟡 | |
 | API errors as one updating message (status in words, attempt, next retry) | ✅ | |
 | Prompt history search (`Ctrl+R`), `!` local shell mode, session tags | ✅ | |
-| Continue automatically after a usage limit (on by default, max 3 in a row) | 🟡 | tested with injected events, not a real limit |
+| Usage limit: queue held until the reset, then continue automatically (on by default, max 3 in a row) and the queue follows; runs on the server | 🟡 | tested with injected events, not a real limit |
+| Status dot stays "working" while background subagents run; the finished notification waits for them | ✅ | |
 | Split view: a second conversation with its own message box and approval cards | ✅ | |
 | Resume sessions interrupted by a restart (off by default) | 🟡 | tested with a fake session manager |
 
@@ -35,7 +36,7 @@ Legend: ✅ built and exercised live · 🟡 built, only partly exercised · ❌
 | Fast mode, ultracode, advisor | 🟡 (*Speed and extras* in the model picker, where the model supports them) |
 
 ## Sessions & projects
-Sessions grouped by project, search, pin, archive, rename, fork, delete, resume, copy ID/resume command, folder picker, draft persistence — ✅.
+Sessions grouped by project, search, pin, archive, rename, fork, delete, resume, copy ID/resume command, folder picker, draft persistence (on the server, attachments included) — ✅.
 Worktrees (`--worktree`) via Advanced → session options — 🟡. Listing and removing git worktrees (including `.claude/worktrees/`) in the Changes panel — ✅.
 
 ## Panels (inspector)

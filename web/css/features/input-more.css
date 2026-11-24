@@ -40,3 +40,5 @@
 .limit-banner svg { flex: none; }
 .limit-banner .lb-text { min-inline-size: 0; }
 .limit-banner .switch { color: var(--text-2); flex: none; }
+.limit-banner .lb-queued { color: var(--text-2); }
+.limit-banner .btn { flex: none; }

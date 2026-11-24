@@ -46,6 +46,10 @@ web/vendor/md.js            generated: marked + DOMPurify + highlight.js (npm ru
 
 ## Data flow
 
+- Messages that have to wait (Claude working, a usage limit, earlier ones still queued) go to `POST /api/sessions/:id/outbox`:
+  `server/lib/outbox.mjs` keeps them per session in `<dataDir>/outbox` and sends the next one when the session is free,
+  holds them during a usage limit and continues the cut-off turn at the reset. Its state rides on every session summary
+  (`outbox`). Drafts of the message boxes live in `<dataDir>/drafts` (`/api/drafts/:id`).
 - `POST /api/sessions` creates a draft session (no process yet). The first message starts a long-lived `claude` process
   with streaming input; `GET /api/sessions/:id/stream` (SSE) delivers its messages with sequence numbers, so a reload or
   reconnect resumes without gaps. Transcript history comes from the SDK's `getSessionMessages`.

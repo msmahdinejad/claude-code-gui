@@ -89,9 +89,13 @@ export class Notifier extends EventEmitter {
   }
 
   onState(summary) {
+    // "Working" lasts until the turn has ended and the subagents it started in the background have finished too.
+    const state = summary.state === "idle" && summary.agentTasks > 0 ? "running" : summary.state;
     const before = this.states.get(summary.id);
-    this.states.set(summary.id, summary.state);
-    if (before !== "running" || summary.state !== "idle") return;
+    this.states.set(summary.id, state);
+    if (before !== "running" || state !== "idle") return;
+    const waiting = summary.outbox;
+    if (waiting?.items?.length && !(waiting.hold && !waiting.hold.reset) && !waiting.paused) return; // the next queued message goes now: not finished yet
     const failed = Boolean(summary.lastResult?.is_error);
     const body = failed ? this.text.failed : clip(lastAssistantText(this.manager.get(summary.id))) || this.text.done;
     this.push({ kind: failed ? "failed" : "done", sessionId: summary.id, body });

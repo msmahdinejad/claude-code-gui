@@ -10,6 +10,9 @@ const MAX_BUFFER = 6000;
 const MAX_STREAM_EVENTS = 300;
 const MAX_STDERR_LINES = 300;
 const IDLE_CLOSE_MS = 25 * 60 * 1000;
+// Background tasks that are work of the agent (subagents, workflows, teammates): while one runs the session is still
+// working even though its turn has ended. Shells and monitors (a dev server, a log watcher) can run for hours and are left out.
+const AGENT_TASKS = new Set(["local_agent", "remote_agent", "local_workflow", "in_process_teammate"]);
 const CHROME_HINT =
   "The user wants browser work done in the Chrome they already have open, through the mcp__claude-in-chrome__* tools (reuse an open tab or window where it makes sense). " +
   "Do not start another browser (agent-browser, Playwright, Puppeteer, a new Chrome process) unless the user asks for it. " +
@@ -43,6 +46,8 @@ export class ClaudeSession extends EventEmitter {
     this.startError = null;
     this.runningSince = null;
     this.lastResult = null;
+    this.backgroundTasks = 0;
+    this.agentTasks = 0;
   }
 
   get alive() {
@@ -72,6 +77,9 @@ export class ClaudeSession extends EventEmitter {
           }
         : null,
       lastResult: this.lastResult,
+      backgroundTasks: this.backgroundTasks,
+      agentTasks: this.agentTasks,
+      outbox: this.manager.outboxView?.(this.id) || null,
       seq: this.seq,
       startError: this.startError,
     };
@@ -234,6 +242,7 @@ export class ClaudeSession extends EventEmitter {
         this.input = null;
         this.cancelAllPending("session closed");
         this.backgroundTasks = 0;
+        this.agentTasks = 0;
         this.setState("closed");
         this.emitMessage({ type: "wh_closed" });
       }
@@ -249,7 +258,18 @@ export class ClaudeSession extends EventEmitter {
       this.setState(msg.state);
     } else if (msg.type === "system" && msg.subtype === "background_tasks_changed") {
       // Subagents / commands that keep running after the turn: the process must not be stopped while they work.
-      this.backgroundTasks = Array.isArray(msg.tasks) ? msg.tasks.length : 0;
+      const tasks = Array.isArray(msg.tasks) ? msg.tasks : [];
+      this.backgroundTasks = tasks.length;
+      const agents = tasks.filter((task) => !task.ambient && AGENT_TASKS.has(task.task_type)).length;
+      if (agents !== this.agentTasks) {
+        this.agentTasks = agents;
+        this.manager.emit("session.state", this.summary()); // the sidebar keeps showing "working" until they finish
+      }
+    } else if (msg.type === "rate_limit_event") {
+      this.manager.emit("session.limit", { id: this.id, info: msg.rate_limit_info || null });
+    } else if (msg.type === "assistant" && msg.error === "rate_limit" && !msg.parent_tool_use_id) {
+      // A limit reported without a rate_limit_event (no reset time known): the outbox waits a little before going on.
+      this.manager.emit("session.limit", { id: this.id, info: { status: "rejected", soft: true } });
     } else if (msg.type === "result") {
       this.lastResult = {
         is_error: msg.is_error,
@@ -284,6 +304,7 @@ export class ClaudeSession extends EventEmitter {
     this.input = null;
     this.cancelAllPending("session closed");
     this.backgroundTasks = 0;
+    this.agentTasks = 0;
     try { input?.close(); } catch { /* already closed */ }
     try { q?.close(); } catch { /* already closed */ }
     this.setState("closed");
@@ -308,7 +329,8 @@ export class ClaudeSession extends EventEmitter {
     if (!this.query) await this.start();
   }
 
-  async sendUser({ text = "", images = [], priority, uuid } = {}) {
+  /** `source` says who sent it: "user" (default), "outbox", "auto-continue", "resume" or "schedule". */
+  async sendUser({ text = "", images = [], priority, uuid, source = "user" } = {}) {
     await this.ensureStarted();
     const MAX_PDF_BYTES = 10 * 1024 * 1024;
     const MAX_TEXT_BYTES = 500 * 1024;
@@ -359,6 +381,7 @@ export class ClaudeSession extends EventEmitter {
     });
     if (this.state === "idle") this.setState("running");
     this.input.push(message);
+    this.manager.emit("session.sent", { id: this.id, source });
     return { uuid: messageUuid };
   }
 

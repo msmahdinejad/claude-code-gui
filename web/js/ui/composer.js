@@ -10,7 +10,9 @@ import { isBusy } from "../chat/reducer.js";
 import { toQuote } from "../chat/quote.js";
 import { openModelPicker, openModePicker, openEffortPicker, currentModelInfo, modelLabel, modeInfo, EFFORTS } from "./pickers.js";
 import { makeCtx } from "../ctx.js";
-import { openHistoryPicker, isShellInput, createLocalRuns, createLimitBanner, noteUserMessage } from "../features/input-more.js";
+import { openHistoryPicker, isShellInput, createLocalRuns, createLimitBanner } from "../features/input-more.js";
+import { saveDraft as storeDraft, loadDraft as fetchDraft, localText, flushDrafts } from "../core/drafts.js";
+import { outboxOf, mustQueue, enqueue, unqueue, sendQueuedNow, resumeOutbox } from "../core/outbox.js";
 
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_PDF_BYTES = 10 * 1024 * 1024;
@@ -47,29 +49,58 @@ export function mountComposer(host) {
   host.replaceChildren(root, hint);
 
   let images = []; // every attachment: {mediaType, data (base64), name, size}; pictures, PDFs and text files
-  const queues = new Map(); // conversation id -> [{text, images}]; each conversation keeps its own waiting messages
-  const queueFor = (id = app.currentId) => {
-    if (!queues.has(id)) queues.set(id, []);
-    return queues.get(id);
-  };
+  // Messages waiting to be sent live on the server (core/outbox.js): they survive restarts and are sent even when this
+  // conversation is not on screen or no window is open.
   let shownId = null; // the conversation the composer is currently showing
   let ac = null; // autocomplete popover state
   let dictation = null;
 
-  // ---- draft persistence ----
-  const draftKey = () => `wheelhouse-draft-${app.currentId}`;
-  const saveDraft = debounce(() => {
-    try { textarea.value ? localStorage.setItem(draftKey(), textarea.value) : localStorage.removeItem(draftKey()); } catch { /* ignore */ }
-  }, 250);
+  // ---- draft persistence (core/drafts.js: on the server, with the text also kept in this browser) ----
+  let edited = false; // the box changed since this conversation's draft was loaded: a late server answer must not overwrite it
+  let loadToken = 0;
+  let imagesLoaded = false; // the server's draft (with its attachments) has been read for the conversation on screen
+  let imagesChanged = false; // attachments were added or removed since the last save that carried them
+  function saveDraft() {
+    edited = true;
+    if (!shownId) return;
+    // Attachments are only sent when they changed (and once the server's were read): typing does not re-upload them.
+    if (imagesChanged && imagesLoaded) {
+      storeDraft(shownId, { text: textarea.value, images });
+      imagesChanged = false;
+    } else {
+      storeDraft(shownId, { text: textarea.value, keepImages: true });
+    }
+  }
+  const attachmentsChanged = () => { imagesChanged = true; };
   function loadDraft() {
     // "current" is also emitted for a rename, a reload or the window coming back: only a real switch resets the input.
     if (shownId !== app.currentId) {
+      flushDrafts(); // what was typed in the conversation we leave goes out now
       shownId = app.currentId;
       recall = null;
-      try { textarea.value = localStorage.getItem(draftKey()) || ""; } catch { textarea.value = ""; }
+      edited = false;
+      imagesLoaded = !shownId;
+      imagesChanged = false;
+      textarea.value = shownId ? localText(shownId) : "";
       images = [];
       renderAttachments();
       autosize();
+      const id = shownId;
+      const token = ++loadToken;
+      if (id) {
+        fetchDraft(id).then((draft) => {
+          if (shownId !== id || token !== loadToken) return;
+          imagesLoaded = true;
+          if (imagesChanged) saveDraft(); // attachments added while we waited go out now
+          if (edited) return;
+          if (draft.text === textarea.value && !draft.images?.length) return;
+          textarea.value = draft.text || "";
+          images = draft.images || [];
+          renderAttachments();
+          autosize();
+          refresh();
+        }).catch(() => { if (shownId === id && token === loadToken) imagesLoaded = true; });
+      }
     }
     renderQueue();
     localRuns.update();
@@ -98,7 +129,8 @@ export function mountComposer(host) {
     sendBtn.disabled = !busy && !hasContent;
     const shell = isShellInput(textarea.value) && !images.length;
     root.classList.toggle("shell-mode", shell);
-    sendBtn.title = shell ? t("Run on this machine") : busy && !hasContent ? t("Stop") : busy ? t("Queue message") : t("Send");
+    const queues = hasContent && !busy && mustQueue(app.currentId);
+    sendBtn.title = shell ? t("Run on this machine") : busy && !hasContent ? t("Stop") : busy || queues ? t("Queue message") : t("Send");
     limitBanner.update();
     hint.textContent = shell ? t("Shell mode: Enter runs the command on this machine. Nothing is sent to Claude.") : app.prefs.sendKey === "enter" ? t("Enter to send · Shift+Enter for a new line · / for commands · @ for files") : t("Ctrl+Enter to send · / for commands · @ for files");
     micBtn.classList.toggle("active", Boolean(dictation));
@@ -109,7 +141,7 @@ export function mountComposer(host) {
     attachments.classList.toggle("hidden", !images.length);
     attachments.replaceChildren(
       ...images.map((image, index) => {
-        const remove = h("button", { type: "button", title: t("Remove"), onclick: () => { images.splice(index, 1); renderAttachments(); refresh(); } }, icon("x", 11));
+        const remove = h("button", { type: "button", title: t("Remove"), onclick: () => { images.splice(index, 1); renderAttachments(); attachmentsChanged(); saveDraft(); refresh(); } }, icon("x", 11));
         if (image.mediaType.startsWith("image/")) return h("div.cmp-attach", h("img", { src: `data:${image.mediaType};base64,${image.data}`, alt: image.name }), remove);
         return h("div.cmp-attach.file", { title: image.name }, icon(image.mediaType === "application/pdf" ? "file" : "file-text", 16), h("span.cmp-file-name", { dir: "auto" }, image.name), image.size ? h("span.cmp-file-size", formatSize(image.size)) : null, remove);
       }),
@@ -161,6 +193,8 @@ export function mountComposer(host) {
       }
     }
     renderAttachments();
+    attachmentsChanged();
+    saveDraft();
     refresh();
   }
 
@@ -179,64 +213,98 @@ export function mountComposer(host) {
     addFiles([...(event.dataTransfer?.files || [])]);
   });
 
-  // ---- queue ----
+  // ---- queue (kept by the server) ----
+  const describe = (entry) => entry.text || ((entry.attachments || []).every((file) => String(file.mediaType).startsWith("image/")) ? t("(image)") : t("(attachment)"));
+  const act = (work) => work().catch((error) => toast(errorMessage(error), "error"));
+
   function renderQueue() {
-    const queue = queueFor();
-    queueBox.classList.toggle("hidden", !queue.length);
-    queueBox.replaceChildren(
-      ...queue.map((entry) =>
-        h(
-          "div.queue-item",
-          icon("clock", 13),
-          h("span", { dir: "auto" }, entry.text || (entry.images.every((image) => image.mediaType.startsWith("image/")) ? t("(image)") : t("(attachment)"))),
-          h("button.mini", { type: "button", title: t("Send now (interrupt)"), onclick: () => sendNow(entry) }, icon("zap", 13)),
-          h("button.mini", { type: "button", title: t("Remove"), onclick: () => { queue.splice(queue.indexOf(entry), 1); renderQueue(); } }, icon("x", 13)),
-        ),
+    const id = app.currentId;
+    const box = outboxOf(id);
+    const items = box?.items || [];
+    const rows = items.map((entry) =>
+      h(
+        "div.queue-item",
+        icon("clock", 13),
+        h("span", { dir: "auto", title: entry.text || "" }, describe(entry)),
+        h("button.mini", { type: "button", title: t("Edit"), onclick: () => act(() => editQueued(id, entry.id)) }, icon("edit", 13)),
+        h("button.mini", { type: "button", title: t("Send now (interrupt)"), onclick: () => act(() => sendQueuedNow(id, entry.id)) }, icon("zap", 13)),
+        h("button.mini", { type: "button", title: t("Remove"), onclick: () => act(() => unqueue(id, entry.id)) }, icon("x", 13)),
       ),
     );
+    if (box?.stopped && box.paused && !box.error && items.length) {
+      rows.push(h(
+        "div.queue-item.queue-paused",
+        icon("clock", 13),
+        h("span", { dir: "auto" }, t("Paused because you stopped Claude. Sending a new message resumes it too.")),
+        h("button.btn.small", { type: "button", onclick: () => act(() => resumeOutbox(id)) }, t("Resume")),
+      ));
+    }
+    if (box?.error && (items.length || box.continueDue)) {
+      rows.push(h(
+        "div.queue-item.queue-error",
+        icon("alert", 13),
+        h("span", { dir: "auto", title: box.error.message }, box.paused ? t("Could not send: {error}", { error: t(box.error.message) }) : t("Could not send, trying again: {error}", { error: t(box.error.message) })),
+        box.paused ? h("button.btn.small", { type: "button", onclick: () => act(() => resumeOutbox(id)) }, t("Try again")) : null,
+      ));
+    }
+    queueBox.classList.toggle("hidden", !rows.length);
+    queueBox.replaceChildren(...rows);
   }
 
-  async function sendNow(entry) {
-    const queue = queueFor();
-    if (queue.indexOf(entry) < 0) return;
-    queue.splice(queue.indexOf(entry), 1);
-    renderQueue();
-    await session.interrupt();
-    await deliver(entry.text, entry.images);
+  /** Take a waiting message back into the box to change it (it is queued again like any new message). */
+  async function editQueued(id, itemId) {
+    const item = await unqueue(id, itemId);
+    if (!item) return;
+    if (shownId !== id) {
+      // Another conversation is on screen now: the message goes into its own conversation's draft instead of being lost.
+      const before = localText(id).trim();
+      const text = before ? `${item.text}\n\n${before}` : item.text;
+      storeDraft(id, item.images?.length ? { text, images: item.images } : { text, keepImages: true });
+      return;
+    }
+    const typed = textarea.value.trim();
+    textarea.value = typed ? `${item.text}\n\n${textarea.value}` : item.text;
+    images = [...(item.images || []), ...images];
+    renderAttachments();
+    autosize();
+    attachmentsChanged();
+    saveDraft();
+    refresh();
+    focusInput();
   }
 
-  let delivering = false; // a queued message is on its way; the next one waits until the session reports it is working
-  function drainQueue() {
-    const queue = queueFor();
-    const conv = currentConv();
-    if (delivering || !queue.length || !conv || isBusy(conv)) return;
-    const entry = queue.shift();
-    renderQueue();
-    delivering = true;
-    deliver(entry.text, entry.images).finally(() => {
-      // The server's "running" state may still be on its way; give it a moment before the next queued message.
-      setTimeout(() => { delivering = false; drainQueue(); }, 400);
-    });
+  async function queueMessage(entry) {
+    try {
+      await enqueue(app.currentId, entry);
+    } catch (error) {
+      toast(errorMessage(error), "error");
+      handBack(entry.text, entry.images);
+    }
   }
 
   // ---- sending ----
   async function deliver(text, imgs) {
-    noteUserMessage(app.currentId);
     try {
       await session.sendMessage(text, imgs);
     } catch {
-      // The controller already showed the error; hand the message back so nothing typed is lost.
-      if (!textarea.value.trim() && !images.length) {
-        textarea.value = text;
-        images = imgs;
-      } else {
-        textarea.value = textarea.value.trim() ? `${text}\n\n${textarea.value}` : text;
-        images = [...imgs, ...images];
-      }
-      renderAttachments();
-      autosize();
-      refresh();
+      handBack(text, imgs); // the controller already showed the error
     }
+  }
+
+  /** A message that could not be sent or queued goes back into the box, so nothing typed is lost. */
+  function handBack(text, imgs) {
+    if (!textarea.value.trim() && !images.length) {
+      textarea.value = text;
+      images = imgs;
+    } else {
+      textarea.value = textarea.value.trim() ? `${text}\n\n${textarea.value}` : text;
+      images = [...imgs, ...images];
+    }
+    renderAttachments();
+    autosize();
+    if (imgs.length) attachmentsChanged();
+    saveDraft();
+    refresh();
   }
 
   async function submit() {
@@ -262,9 +330,9 @@ export function mountComposer(host) {
     }
     const entry = { text, images: images.slice() };
     clearInput();
-    if (busy) {
-      queueFor().push(entry);
-      renderQueue();
+    // Claude is working, a usage limit holds the session, or earlier messages still wait: this one queues behind them.
+    if (mustQueue(app.currentId)) {
+      await queueMessage(entry);
       return;
     }
     await deliver(entry.text, entry.images);
@@ -272,10 +340,8 @@ export function mountComposer(host) {
 
   // The output of a local command, sent on purpose with its button: queued like any message while Claude is working.
   async function sendContext(text) {
-    const conv = currentConv();
-    if (conv && isBusy(conv) && conv.state !== "starting") {
-      queueFor().push({ text, images: [] });
-      renderQueue();
+    if (mustQueue(app.currentId)) {
+      await queueMessage({ text, images: [] });
       return;
     }
     await deliver(text, []);
@@ -284,6 +350,7 @@ export function mountComposer(host) {
   function clearInput() {
     recall = null;
     textarea.value = "";
+    if (images.length) attachmentsChanged();
     images = [];
     renderAttachments();
     autosize();
@@ -564,14 +631,13 @@ export function mountComposer(host) {
   bus.on("current", () => {
     loadDraft();
     refresh();
-    drainQueue(); // messages queued here while the session finished in the background
     if (!matchMedia("(pointer: coarse)").matches) textarea.focus({ preventScroll: true });
   });
   bus.on("meta", refresh);
   bus.on("catalog", refresh);
   bus.on("prefs", refresh);
-  bus.on("live", (id) => { if (id === app.currentId) { refresh(); drainQueue(); } });
-  bus.on("conv:update", (id) => { if (id === app.currentId) { refresh(); drainQueue(); } });
+  bus.on("live", (id) => { if (id === app.currentId) { refresh(); renderQueue(); } });
+  bus.on("conv:update", (id) => { if (id === app.currentId) refresh(); });
   loadDraft();
   refresh();
   return { focus: () => textarea.focus(), fill: (text) => bus.emit("composer:fill", text) };

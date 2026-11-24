@@ -83,7 +83,8 @@ export class InterruptedSessions {
 
   onState(summary) {
     if (this.frozen || !summary?.id) return;
-    if (summary.state === "running") {
+    // Subagents still working after the turn ended count as working: a restart cuts them off as well.
+    if (summary.state === "running" || summary.agentTasks > 0) {
       if (this.skip(summary.id, summary.meta || {}) || !summary.cwd) return;
       if (!this.running.has(summary.id)) this.running.set(summary.id, { id: summary.id, cwd: summary.cwd, since: this.now() });
     } else if (!this.running.delete(summary.id)) {
@@ -160,7 +161,7 @@ export class InterruptedSessions {
           if (!this.exists(entry.cwd)) throw new Error("the folder no longer exists");
           const target = this.open(entry.id, entry.cwd);
           if (target.state === "running") throw new Error("it is already working");
-          await target.sendUser({ text: PROMPT });
+          await target.sendUser({ text: PROMPT, source: "resume" });
           outcome.ok.push(entry.id);
         } catch (error) {
           outcome.failed.push({ id: entry.id, error: error.message });

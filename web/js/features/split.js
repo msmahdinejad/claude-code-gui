@@ -2,7 +2,7 @@
 // The main pane is untouched: while a split is open #main becomes a grid (css/features/split.css) and this module adds
 // a divider and a pane with its own ChatView, a compact message box and the request cards of ITS conversation.
 // app.splitId is what session.js counts in the stream budget; the inspector keeps following the main conversation.
-import { h, ibtn, toast, errorMessage, shortPath, debounce, raf } from "../core/dom.js";
+import { h, ibtn, toast, errorMessage, shortPath, raf } from "../core/dom.js";
 import { icon } from "../core/icons.js";
 import { t } from "../core/i18n.js";
 import { app, bus } from "../core/state.js";
@@ -11,7 +11,9 @@ import { ChatView } from "../chat/view.js";
 import { renderRequest } from "../chat/requests.js";
 import { isBusy } from "../chat/reducer.js";
 import * as session from "../session.js";
-import { isShellInput, noteUserMessage } from "./input-more.js";
+import { isShellInput } from "./input-more.js";
+import { saveDraft as storeDraft, loadDraft as fetchDraft, localText, flushDrafts } from "../core/drafts.js";
+import { mustQueue, enqueue, shownState } from "../core/outbox.js";
 import { SPLIT_MIN_WINDOW, canSplit, clampSplitWidth, parseStoredId, parseStoredWidth, widthFromPointer } from "../ui/split-logic.js";
 
 const ID_KEY = "wheelhouse-split-id";
@@ -201,7 +203,7 @@ function build() {
   ui = { dot, title, sub, badge, view, empty, requestsHost, input, send, dock, pane, divider, cards: new Map(), headKey: "", shownDraft: null };
 
   wireDivider(divider);
-  input.addEventListener("input", () => { autosize(); refreshInput(); saveDraft(); });
+  input.addEventListener("input", () => { draftEdited = true; autosize(); refreshInput(); saveDraft(); });
   input.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.isComposing && !event.shiftKey) {
       const ctrl = event.ctrlKey || event.metaKey;
@@ -243,9 +245,8 @@ function renderHead() {
   const listed = app.sessions.find((entry) => entry.id === conv.id);
   const name = listed?.title || conv.title || t("New session");
   const cwd = conv.cwd || listed?.cwd || "";
-  const live = app.live.get(conv.id);
   const waiting = conv.requests.size;
-  const state = waiting ? "requires_action" : live?.state || conv.state || "closed";
+  const state = waiting ? "requires_action" : shownState(conv.id, conv.state || "closed");
   const key = `${conv.id}|${name}|${cwd}|${state}|${waiting}`;
   if (key === ui.headKey) return;
   ui.headKey = key;
@@ -281,21 +282,39 @@ function renderDock() {
 const frame = raf(() => renderAll());
 
 // ---- message box -----------------------------------------------------------------------------
-const draftKey = (id) => `wheelhouse-draft-${id}`; // the main message box uses the same key: a draft follows a swap
-
-const saveDraft = debounce(() => saveDraftNow(), 250);
+// Drafts are shared with the main message box (core/drafts.js), so a draft follows a swap. This box has no attachments:
+// it keeps the ones a draft already has. The save waits a moment after typing; leaving the conversation sends it first.
+let draftTimer = null;
+let draftEdited = false;
+function saveDraft() {
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(saveDraftNow, 250);
+}
 
 function saveDraftNow() {
-  if (!ui?.shownDraft) return;
-  write(draftKey(ui.shownDraft), ui.input.value || null);
+  clearTimeout(draftTimer);
+  draftTimer = null;
+  if (!ui?.shownDraft || !draftEdited) return;
+  storeDraft(ui.shownDraft, { text: ui.input.value || "", keepImages: true });
 }
 
 function loadDraft() {
   const id = app.splitId;
   if (ui.shownDraft === id) return;
+  if (draftTimer) saveDraftNow(); // the last keystrokes belong to the conversation we leave
+  flushDrafts();
   ui.shownDraft = id;
-  ui.input.value = id ? read(draftKey(id)) || "" : "";
+  draftEdited = false;
+  ui.input.value = id ? localText(id) : "";
   autosize();
+  if (id) {
+    fetchDraft(id).then((draft) => {
+      if (ui?.shownDraft !== id || draftEdited || draft.text === ui.input.value) return;
+      ui.input.value = draft.text || "";
+      autosize();
+      refreshInput();
+    }).catch(() => {});
+  }
 }
 
 function autosize() {
@@ -332,18 +351,23 @@ async function submit() {
     return;
   }
   ui.input.value = "";
+  draftEdited = true; // the emptied box is saved too
   autosize();
   saveDraftNow();
   refreshInput();
-  noteUserMessage(id);
+  // Like the main box: while Claude works, a limit holds the session or messages wait, this one queues behind them.
+  const queued = mustQueue(id);
   try {
-    await session.sendMessageTo(id, text);
-  } catch {
-    // sendMessageTo already showed the error; hand the text back so nothing typed is lost
+    if (queued) await enqueue(id, { text });
+    else await session.sendMessageTo(id, text);
+  } catch (error) {
+    if (queued) toast(errorMessage(error), "error"); // sendMessageTo shows its own errors
+    // hand the text back so nothing typed is lost
     if (app.splitId === id && !ui.input.value.trim()) {
       ui.input.value = text;
       autosize();
       refreshInput();
+      saveDraftNow();
     }
   }
 }

@@ -513,7 +513,7 @@ export class TaskScheduler {
       const wall = setTimeout(() => end({ status: "timeout", error: `Stopped after ${Math.round(this.runTimeoutMs / 60000)} minutes` }), this.runTimeoutMs);
       this.current.stop = end;
       session.on("event", onEvent);
-      session.sendUser({ text: task.prompt }).then(
+      session.sendUser({ text: task.prompt, source: "schedule" }).then(
         () => this.manager.emit?.("sessions.changed"), // the new session is listed now
         (error) => end({ status: "failed", error: error.message }),
       );

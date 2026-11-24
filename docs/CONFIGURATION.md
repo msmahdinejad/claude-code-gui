@@ -27,7 +27,7 @@ Precedence, highest first: command-line flags → environment variables → conf
 |---|---|---|
 | `port` | `4173` | Port (also `--port`, `WHEELHOUSE_PORT`). The server only ever listens on `127.0.0.1`. |
 | `defaultCwd` | home directory | Working directory when none is chosen (`--cwd`, `WHEELHOUSE_CWD`). |
-| `dataDir` | `~/.wheelhouse` | Wheelhouse's own state: pins, recent projects, per-session UI settings (`--data-dir`, `WHEELHOUSE_DATA_DIR`). Sessions themselves are stored by Claude Code in the profile's config directory. |
+| `dataDir` | `~/.wheelhouse` | Wheelhouse's own state: pins, recent projects, per-session UI settings, the message queue (`outbox/`) and message-box drafts (`drafts/`) (`--data-dir`, `WHEELHOUSE_DATA_DIR`). Sessions themselves are stored by Claude Code in the profile's config directory. |
 | `workspaceRoot` | `<Documents>/Claude` | Parent of the per-session folders created by **New folder** (also in Settings → General; `WHEELHOUSE_WORKSPACE_ROOT`). |
 | `systemPromptAppend` | a short "reply in the user's language, keep code LTR" note | Appended to Claude Code's system prompt. `""` disables (`WHEELHOUSE_SYSTEM_PROMPT`). |
 | `defaults.model` / `defaults.effort` / `defaults.permissionMode` | `default` / `""` / `default` | Starting values for new sessions. Anything the user picks in Settings → Model & behavior wins. |

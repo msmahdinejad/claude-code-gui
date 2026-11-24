@@ -1,4 +1,4 @@
-// Persian strings: Ctrl+R prompt history, "!" shell mode, continue automatically after a usage limit.
+// Persian strings: Ctrl+R prompt history, "!" shell mode, the usage-limit banner and the server-side send queue.
 export const fa = {
   "Search earlier prompts…": "جستجو در پیام‌های قبلی…",
   "Search earlier prompts": "جستجو در پیام‌های قبلی",
@@ -14,11 +14,22 @@ export const fa = {
   "Exit code {code}": "کد خروج {code}",
   "Sent to Claude": "برای Claude فرستاده شد",
   "A command is already running here. Stop it first.": "همین‌جا یک دستور در حال اجراست. اول آن را متوقف کنید.",
-  "Automatic continue stopped after repeated usage-limit hits.": "ادامهٔ خودکار پس از چند بار رسیدن به سقف مصرف متوقف شد.",
   "The usage limit has reset.": "سقف مصرف دوباره باز شده است.",
   "Continue automatically": "ادامه به‌صورت خودکار",
-  "Usage limit reached — continue automatically at {time}": "به سقف مصرف رسیدید — ادامهٔ خودکار در {time}",
+  "Usage limit reached — continue automatically at {time}": "به سقف مصرف رسیدید؛ ساعت {time} خودکار ادامه می‌دهم.",
   "Run on this machine": "اجرا روی همین رایانه",
   "Shell mode: Enter runs the command on this machine. Nothing is sent to Claude.": "حالت شل: Enter دستور را روی همین رایانه اجرا می‌کند. چیزی برای Claude فرستاده نمی‌شود.",
   "Run a command here (!)": "اجرای یک دستور اینجا (!)",
+  "Usage limit reached — it resets at {time}": "به سقف مصرف رسیدید؛ ساعت {time} دوباره باز می‌شود.",
+  "{n} queued message(s) will be sent after it.": "بعدش {n} پیام صف هم فرستاده می‌شود.",
+  "Send the queued messages now instead of waiting for the reset": "پیام‌های صف را همین حالا بفرست و منتظر باز شدن سقف نمان",
+  "Send now": "همین حالا بفرست",
+  "Claude stopped on a usage limit. Waiting until {time} before sending more.": "Claude به سقف مصرف خورد. تا {time} صبر می‌کنم و بعد بقیه را می‌فرستم.",
+  "Could not send: {error}": "فرستاده نشد: {error}",
+  "Could not send, trying again: {error}": "فرستاده نشد، دوباره امتحان می‌کنم: {error}",
+  "Try again": "دوباره امتحان کن",
+  "Another session of this account reached the usage limit. Queued messages wait until {time}.": "یک سشن دیگرِ همین حساب به سقف مصرف خورده است. پیام‌های صف تا ساعت {time} صبر می‌کنند.",
+  "Paused because you stopped Claude. Sending a new message resumes it too.": "چون Claude را متوقف کردید، صف متوقف شد. فرستادن یک پیام تازه هم آن را ادامه می‌دهد.",
+  Resume: "ادامه",
+  "Wheelhouse stopped while this message was being sent, so it may or may not have reached Claude. Check the conversation, then try again or remove it.": "Wheelhouse وسط فرستادن این پیام بسته شد و معلوم نیست به Claude رسیده باشد. گفتگو را ببینید، بعد دوباره امتحان کنید یا پاکش کنید.",
 };

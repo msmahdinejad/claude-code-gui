@@ -233,7 +233,7 @@ route("GET", "/api/status", async () => {
   for (const current of manager.sessions.values()) {
     if (!current.alive) continue;
     live += 1;
-    if (current.state === "running") running += 1;
+    if (current.state === "running" || current.agentTasks > 0) running += 1; // subagents still working count as running
     if (current.pending.size) waiting += 1;
   }
   return { ok: true, version: PACKAGE.version, live, running, waiting };
@@ -515,6 +515,7 @@ route("GET", "/api/sessions/([^/]+)", async ({ params, query }) => {
     meta,
     history,
     live: live ? live.summary() : null,
+    outbox: live ? undefined : manager.outboxView?.(id) || null, // messages waiting for a session the server has not opened
     buffer: entries.slice(-800),
     seq: live?.seq || 0,
   };
@@ -528,28 +529,60 @@ route("GET", "/api/sessions/([^/]+)/subagent/([^/]+)", async ({ params, query })
 
 route("GET", "/api/sessions/([^/]+)/subagents", async ({ params, query }) => ({ agents: await listSubagents(params[0], { dir: query.get("cwd") || undefined }) }));
 
-route("POST", "/api/sessions/([^/]+)/messages", async ({ params, body }) => {
-  const target = session(params[0], { create: true, cwd: body.cwd });
-  if (body.meta) Object.assign(target.meta, body.meta);
+/**
+ * A session object made from an id alone (after a restart) is assumed to have a transcript, so its process resumes it.
+ * A new session that never got a message has none: resuming it fails with "No conversation found". Check once before
+ * the first start and start it fresh with that id instead.
+ */
+function checkTranscript(target) {
+  if (target.alive || !target.persisted) return undefined;
+  // One check per session object, shared by callers that arrive together (the outbox and a send from the page).
+  target.transcriptCheck ||= lookForTranscript(target);
+  return target.transcriptCheck;
+}
+
+async function lookForTranscript(target) {
+  const root = join(cfiles.configDir(), "projects");
+  const folders = await readdir(root, { withFileTypes: true }).catch((error) => (error.code === "ENOENT" ? [] : null));
+  if (!folders) return; // cannot tell: leave it as it was
+  for (const folder of folders) {
+    if (folder.isDirectory() && (await stat(join(root, folder.name, `${target.id}.jsonl`)).catch(() => null))) return;
+  }
+  target.persisted = false;
+}
+
+/** Send one message to a session, opening and starting it as needed (the page's send and the outbox both use this). */
+async function sendTo(id, { text = "", images = [], priority, uuid, cwd, meta, source } = {}) {
+  const target = session(id, { create: true, cwd });
+  if (meta) Object.assign(target.meta, meta);
   await materializeScratch(target);
-  if (body.cwd && !target.alive && !target.meta.scratchFolder) target.cwd = resolve(body.cwd);
+  await checkTranscript(target);
+  if (cwd && !target.alive && !target.meta.scratchFolder) target.cwd = resolve(cwd);
   store.touchProject(target.cwd);
-  if (body.meta) Object.assign(target.meta, body.meta);
+  if (meta) Object.assign(target.meta, meta);
   const firstMessage = !target.alive;
-  const result = await target.sendUser({ text: body.text || "", images: body.images || [], priority: body.priority, uuid: body.uuid });
+  const result = await target.sendUser({ text, images, priority, uuid, source });
   if (firstMessage) manager.emit("sessions.changed"); // a new session now exists: every open window should list it
   return result;
-});
+}
+
+route("POST", "/api/sessions/([^/]+)/messages", async ({ params, body }) =>
+  sendTo(params[0], { text: body.text || "", images: body.images || [], priority: body.priority, uuid: body.uuid, cwd: body.cwd, meta: body.meta }));
 
 route("POST", "/api/sessions/([^/]+)/start", async ({ params, body }) => {
   const target = session(params[0], { create: true, cwd: body.cwd });
   if (body.meta) Object.assign(target.meta, body.meta);
   await materializeScratch(target);
+  await checkTranscript(target);
   await target.ensureStarted();
   return target.summary();
 });
 
-route("POST", "/api/sessions/([^/]+)/interrupt", async ({ params }) => session(params[0]).interrupt());
+route("POST", "/api/sessions/([^/]+)/interrupt", async ({ params }) => {
+  const result = await session(params[0]).interrupt();
+  manager.emit("session.interrupted", { id: params[0] }); // Stop pauses the messages still queued for it
+  return result;
+});
 
 route("POST", "/api/sessions/([^/]+)/control", async ({ params, body }) => {
   const target = session(params[0]);
@@ -678,7 +711,7 @@ route("GET", "/api/usage-summary", async () => {
 
 // ---- extension routes + feature discovery -------------------------------------------
 // Drop a module in server/lib/routes/*.mjs exporting default ({route, config, manager, catalog, store, ...}) => void
-const routeCtx = { route, config, manager, catalog, store, HttpError, fsgit, cfiles, runClaudeCli, session, stat, resolve, join, homedir };
+const routeCtx = { route, config, manager, catalog, store, HttpError, fsgit, cfiles, runClaudeCli, session, sendTo, stat, resolve, join, homedir };
 const routesDir = join(HERE, "lib", "routes");
 for (const file of (await readdir(routesDir).catch(() => [])).filter((name) => name.endsWith(".mjs")).sort()) {
   try {

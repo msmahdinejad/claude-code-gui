@@ -1,13 +1,12 @@
 // More for the composer: Ctrl+R search in earlier prompts (Claude Code's history file), "!" shell mode that runs a
-// command on this machine without involving Claude, and "continue automatically" after a claude.ai usage limit.
+// command on this machine without involving Claude, and the banner for a session that waits for a claude.ai usage limit.
 // composer.js imports these; nothing here registers itself with the shell.
 import { h, ibtn, modal, toast, errorMessage, debounce, formatTime, baseName } from "../core/dom.js";
 import { icon } from "../core/icons.js";
 import { t } from "../core/i18n.js";
-import { app, bus } from "../core/state.js";
+import { app } from "../core/state.js";
+import { outboxOf, setAutoContinue, continueNow, resumeOutbox } from "../core/outbox.js";
 import { api } from "../core/api.js";
-import { isBusy } from "../chat/reducer.js";
-import * as session from "../session.js";
 
 const locale = () => (document.documentElement.lang === "fa" ? "fa-IR" : undefined);
 
@@ -262,74 +261,10 @@ export function createLocalRuns({ onSend }) {
   return { el, run, update, running: () => Boolean(runs.get(app.currentId)?.running) };
 }
 
-// ---- continue automatically after a usage limit ----------------------------------------------------------------
-// The reducer sets conv.limitHit = { resetsAt (ms), type, at } from a rate_limit_event that is "rejected". The choice
-// to continue on its own is ON by default and lives here, in memory only (the ones switched off): it survives switching
-// conversations, not a page reload.
-export const CONTINUE_TEXT = "Please continue the task you were working on.";
-const GRACE_MS = 3000; // a moment after the reset, so the limit is surely lifted
-const RETRY_MS = 15_000; // the conversation was still busy at the reset
-const MAX_AUTO = 3; // like Claude Code: stop after this many automatic continues in a row
-
-const autoOff = new Set(); // conversations where the person switched it off (or it stopped after repeated hits)
-const isAuto = (id) => !autoOff.has(id);
-const timers = new Map(); // conversation id -> { key, handle }
-const fired = new Set(); // keys that were sent (or given up on): never twice
-const autoCount = new Map(); // conversation id -> automatic continues since the user last wrote
-
-const limitKey = (id, hit) => `${id}:${hit.resetsAt}`;
-
-/** The user sent a message of their own: the run of automatic continues starts over. */
-export function noteUserMessage(id) {
-  autoCount.delete(id);
-}
-
-function unplan(id) {
-  const old = timers.get(id);
-  if (old) clearTimeout(old.handle);
-  timers.delete(id);
-}
-
-function plan(id) {
-  const conv = app.convs.get(id);
-  const hit = conv?.limitHit;
-  const key = hit ? limitKey(id, hit) : null;
-  if (!hit || !isAuto(id) || fired.has(key)) { unplan(id); return; }
-  if (timers.get(id)?.key === key) return; // already counting down to this reset
-  unplan(id);
-  arm(id, key, Math.max(0, hit.resetsAt - Date.now()) + GRACE_MS);
-}
-
-function arm(id, key, delay) {
-  const handle = setTimeout(() => fire(id, key), Math.min(delay, 2 ** 31 - 1));
-  timers.set(id, { key, handle });
-}
-
-async function fire(id, key) {
-  const conv = app.convs.get(id);
-  const hit = conv?.limitHit;
-  // Still the same limit, still switched on, nothing newer from the user, never sent before.
-  if (!conv || !hit || limitKey(id, hit) !== key || !isAuto(id) || fired.has(key)) { unplan(id); return; }
-  if (Date.now() < hit.resetsAt) { arm(id, key, hit.resetsAt - Date.now() + GRACE_MS); return; } // woke early
-  if (isBusy(conv)) { arm(id, key, RETRY_MS); return; } // idle or closed (the process was put to rest) only
-  unplan(id);
-  fired.add(key);
-  if ((autoCount.get(id) || 0) >= MAX_AUTO) {
-    autoOff.add(id);
-    toast(t("Automatic continue stopped after repeated usage-limit hits."), "error");
-    bus.emit("limit:auto", id);
-    return;
-  }
-  autoCount.set(id, (autoCount.get(id) || 0) + 1);
-  try {
-    await session.sendMessageTo(id, CONTINUE_TEXT);
-  } catch { /* the controller already showed the error */ }
-  bus.emit("limit:auto", id);
-}
-
-bus.on("conv:update", (id) => {
-  if (app.convs.get(id)?.limitHit || timers.has(id)) plan(id);
-});
+// ---- waiting for a usage limit ---------------------------------------------------------------------------------
+// The server holds a session's queue while a claude.ai usage limit is in force and, at the reset, first continues the
+// turn the limit cut off (automatic continue, on by default, per session) and then sends what waits (server/lib/outbox.mjs).
+// This banner shows that state for the conversation on screen and lets the user change it; nothing is timed here.
 
 /** The banner above the message box for the conversation on screen. update() is cheap: call it whenever things change. */
 export function createLimitBanner() {
@@ -341,50 +276,60 @@ export function createLimitBanner() {
     const sameDay = date.toDateString() === new Date().toDateString();
     return date.toLocaleString(locale(), sameDay ? { hour: "2-digit", minute: "2-digit" } : { weekday: "short", hour: "2-digit", minute: "2-digit" });
   };
+  const act = (work) => work().catch((error) => toast(errorMessage(error), "error"));
 
   function update() {
     clearTimeout(redraw);
     const id = app.currentId;
-    const hit = id ? app.convs.get(id)?.limitHit : null;
-    if (!hit || fired.has(limitKey(id, hit))) {
+    const box = outboxOf(id);
+    const hold = box?.hold;
+    if (!hold) {
       shown = "";
       el.classList.add("hidden");
       el.replaceChildren();
       return;
     }
-    const over = Date.now() >= hit.resetsAt;
-    const signature = `${limitKey(id, hit)}|${over && !isAuto(id) ? "reset" : "wait"}|${document.documentElement.lang}`; // the switch keeps its own state
+    const waiting = box.items?.length || 0;
+    const signature = `${id}|${hold.resetsAt}|${hold.reset ? "reset" : "wait"}|${hold.soft ? 1 : 0}|${hold.account ? 1 : 0}|${box.auto}|${waiting}|${document.documentElement.lang}`;
     if (signature !== shown) {
       shown = signature;
-      draw(id, hit, over);
+      draw(id, box, hold, waiting);
     }
-    if (!over) redraw = setTimeout(update, Math.min(hit.resetsAt - Date.now() + 500, 2 ** 31 - 1));
+    // The time shown can turn into "tomorrow" style wording; refresh at the reset in case the server's word is late.
+    if (!hold.reset && hold.resetsAt > Date.now()) redraw = setTimeout(update, Math.min(hold.resetsAt - Date.now() + 1000, 2 ** 31 - 1));
   }
 
-  function draw(id, hit, over) {
+  function draw(id, box, hold, waiting) {
     el.classList.remove("hidden");
-    if (over && !isAuto(id)) {
+    const queued = waiting ? h("span.lb-queued", t("{n} queued message(s) will be sent after it.", { n: waiting })) : null;
+    if (hold.reset) {
       el.replaceChildren(
         icon("clock", 14),
         h("span.lb-text", t("The usage limit has reset.")),
         h("span.grow"),
-        h("button.btn.small.primary", { type: "button", onclick: () => { fired.add(limitKey(id, hit)); update(); session.sendMessageTo(id, CONTINUE_TEXT).catch(() => {}); } }, t("Continue")),
+        h("button.btn.small.primary", { type: "button", onclick: () => act(() => continueNow(id)) }, t("Continue")),
+        ibtn("x", t("Dismiss"), () => act(() => resumeOutbox(id, { skipHold: true })), { size: 13 }),
       );
       return;
     }
-    const toggle = h("input", { type: "checkbox", checked: isAuto(id), "aria-label": t("Continue automatically"), onchange: () => {
-      if (toggle.checked) autoOff.delete(id); else autoOff.add(id);
-      plan(id);
-      update(); // (an over-due limit with the switch off turns into the "has reset" notice)
-    } });
+    const time = clock(hold.resetsAt);
+    const skip = waiting ? h("button.btn.small", { type: "button", title: t("Send the queued messages now instead of waiting for the reset"), onclick: () => act(() => resumeOutbox(id, { skipHold: true })) }, t("Send now")) : null;
+    if (hold.soft || hold.account) {
+      const text = hold.account
+        ? t("Another session of this account reached the usage limit. Queued messages wait until {time}.", { time })
+        : t("Claude stopped on a usage limit. Waiting until {time} before sending more.", { time });
+      el.replaceChildren(icon("clock", 14), h("span.lb-text", text), h("span.grow"), skip || "");
+      return;
+    }
+    const toggle = h("input", { type: "checkbox", checked: box.auto !== false, "aria-label": t("Continue automatically"), onchange: () => act(() => setAutoContinue(id, toggle.checked)) });
     el.replaceChildren(
       icon("clock", 14),
-      h("span.lb-text", t("Usage limit reached — continue automatically at {time}", { time: clock(hit.resetsAt) })),
+      h("span.lb-text", box.auto !== false ? t("Usage limit reached — continue automatically at {time}", { time }) : t("Usage limit reached — it resets at {time}", { time }), " ", queued || ""),
       h("span.grow"),
+      skip || "",
       h("label.switch", toggle, h("span", t("Continue automatically"))),
     );
   }
 
-  bus.on("limit:auto", update);
   return { el, update };
 }

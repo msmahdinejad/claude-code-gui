@@ -88,3 +88,62 @@ test("close() resolves once the process stream has ended; dropping sessions tell
   assert.equal(detached, 2);
   assert.equal(manager.get(other.id), undefined);
 });
+
+/** A query that initializes at once and streams the given messages, then stays open until closed. */
+function scriptedQuery(messages) {
+  return () => {
+    let end;
+    const ended = new Promise((resolve) => { end = resolve; });
+    const queue = [...messages];
+    return {
+      initializationResult: async () => ({ models: [] }),
+      close() { end(); },
+      [Symbol.asyncIterator]() {
+        return {
+          next: async () => {
+            if (queue.length) {
+              await new Promise((resolve) => setTimeout(resolve, 5));
+              return { done: false, value: queue.shift() };
+            }
+            await ended;
+            return { done: true, value: undefined };
+          },
+        };
+      },
+    };
+  };
+}
+
+test("subagents still working after the turn are counted (shells and ambient tasks are not); limits and sends are announced", async () => {
+  const tasks = [
+    { task_id: "a", task_type: "local_agent", description: "research" },
+    { task_id: "b", task_type: "local_bash", description: "dev server" },
+    { task_id: "c", task_type: "local_agent", description: "watcher", ambient: true },
+  ];
+  const manager = new SessionManager({ claudeBin: undefined, chrome: false }, {
+    query: scriptedQuery([
+      { type: "system", subtype: "background_tasks_changed", tasks },
+      { type: "rate_limit_event", rate_limit_info: { status: "rejected", resetsAt: 1800000000, rateLimitType: "five_hour" } },
+      { type: "assistant", error: "rate_limit", parent_tool_use_id: null, message: { content: [] } },
+      { type: "system", subtype: "background_tasks_changed", tasks: [tasks[1]] },
+    ]),
+  });
+  clearInterval(manager.reaper);
+  const states = [];
+  const limits = [];
+  const sent = [];
+  manager.on("session.state", (summary) => states.push(summary.agentTasks));
+  manager.on("session.limit", (event) => limits.push(event.info));
+  manager.on("session.sent", (event) => sent.push(event.source));
+  const session = manager.create({ cwd: process.cwd() });
+  await session.sendUser({ text: "hi", source: "outbox" });
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.ok(states.includes(1), "one agent task counted");
+  assert.equal(session.agentTasks, 0, "back to zero when the subagent finished");
+  assert.equal(session.backgroundTasks, 1, "the shell is still a background task");
+  assert.equal(limits[0].status, "rejected");
+  assert.equal(limits[1].soft, true);
+  assert.deepEqual(sent, ["outbox"]);
+  assert.equal(session.summary().agentTasks, 0);
+  session.close();
+});

@@ -138,6 +138,38 @@ test("status reports live session counts for the tray", async () => {
   assert.deepEqual({ ok: status.ok, live: status.live, running: status.running, waiting: status.waiting }, { ok: true, live: 0, running: 0, waiting: 0 });
 });
 
+test("drafts are kept by the server, keep attachments on a text-only save, and go when emptied", async () => {
+  const id = "draft-test-1";
+  const empty = await (await api(`/api/drafts/${id}`)).json();
+  assert.deepEqual(empty, { text: "", images: [], at: 0 });
+  const image = { mediaType: "image/png", name: "a.png", size: 3, data: "AAAA" };
+  assert.equal((await api(`/api/drafts/${id}`, { method: "PUT", body: JSON.stringify({ text: "hello", images: [image], at: 5 }) })).status, 200);
+  let draft = await (await api(`/api/drafts/${id}`)).json();
+  assert.equal(draft.text, "hello");
+  assert.equal(draft.images[0].name, "a.png");
+  await api(`/api/drafts/${id}`, { method: "PUT", body: JSON.stringify({ text: "hello again", keepImages: true, at: 6 }) });
+  draft = await (await api(`/api/drafts/${id}`)).json();
+  assert.equal(draft.text, "hello again");
+  assert.equal(draft.images.length, 1, "the split pane's text-only save keeps the attachments");
+  await api(`/api/drafts/${id}`, { method: "PUT", body: JSON.stringify({ text: "", images: [], at: 7 }) });
+  const cleared = await (await api(`/api/drafts/${id}`)).json();
+  assert.equal(cleared.text, "");
+  assert.deepEqual(cleared.images, []);
+  await api(`/api/drafts/${id}`, { method: "PUT", body: JSON.stringify({ text: "an older save", at: 6 }) });
+  assert.equal((await (await api(`/api/drafts/${id}`)).json()).text, "", "an older save does not bring old text back");
+  assert.equal((await api("/api/drafts/..%2fx", { method: "PUT", body: "{}" })).status, 400);
+});
+
+test("the outbox refuses empty messages and reports an empty queue as null", async () => {
+  const id = "11111111-2222-4333-8444-555555555555";
+  const view = await (await api(`/api/sessions/${id}/outbox`)).json();
+  assert.equal(view.outbox, null);
+  const empty = await api(`/api/sessions/${id}/outbox`, { method: "POST", body: JSON.stringify({ text: "  ", cwd: home }) });
+  assert.equal(empty.status, 400);
+  const missing = await api(`/api/sessions/${id}/outbox/00000000-0000-4000-8000-000000000000`, { method: "DELETE" });
+  assert.equal(missing.status, 404);
+});
+
 test("shutdown is refused for foreign or missing origins and stops the server for the real one", async () => {
   const foreign = await fetch(`${base}/api/shutdown`, { method: "POST", headers: { origin: "https://evil.example" } });
   assert.equal(foreign.status, 403);

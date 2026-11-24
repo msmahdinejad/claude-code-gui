@@ -119,10 +119,20 @@ once (at most 7 days back). The last 50 runs of each task are kept. Each run use
   folder or all folders. `Enter` puts one in the box.
 - **`!` shell mode**: a message starting with `!` runs on this machine in the session's folder and is **not** sent to
   Claude. *Send output to Claude* shares the result when you want to.
-- **Continue after a usage limit**: when a claude.ai limit stops a turn, a banner says *Usage limit reached — continue
-  automatically at HH:MM* with a switch. It is **on by default**; at the reset time it sends one message asking Claude to
-  continue, only if the session is idle and you have not written anything newer, and stops after 3 automatic
-  continues in a row. Turn the switch off in the banner to keep control.
+- **Message queue**: a message sent while Claude works (or while a usage limit holds the session, or while earlier
+  messages still wait) is queued above the box. The **server** keeps the queue (`<dataDir>/outbox`), so it survives a
+  restart or a closed window, and sends the next message as soon as the session is free, whether or not the
+  conversation is on screen. Each waiting message can be edited (back into the box), sent now (interrupting the turn)
+  or removed. A send that fails is retried (after 15 s, 1 min and 5 min), then paused with *Try again*.
+- **Drafts**: what you type (attachments included) is saved on the server as well as in the browser, so it is back
+  after a restart, in another window or on another address.
+- **Usage limits**: when a claude.ai limit stops a turn, the queue is held and a banner says *Usage limit reached —
+  continue automatically at HH:MM*. At the reset the server first sends one message asking Claude to continue the cut-off
+  turn (**on by default**, at most 3 in a row; switch it off in the banner), and the queued messages follow once that
+  turn has finished. *Send now* in the banner skips the wait. All of this runs on the server: no window has to be open.
+- **Status dot**: a session stays orange (working) after its turn ends while subagents it started in the background
+  are still running, and only then turns green; the *finished* notification waits for them too. Background shells and
+  monitors (a dev server, a log watcher) do not count.
 
 ## Real terminal and preview
 
@@ -148,7 +158,8 @@ once (at most 7 days back). The last 50 runs of each task are kept. Each run use
 Open a second conversation beside the main one: sidebar session menu → *Open in split view*, or `Alt`+click a session
 (window at least 1100 px wide). Drag the divider (double-click resets it). The second pane has its own message box and
 Stop button and shows approval/question/plan cards, so a background session can be answered there. *Swap with main*
-exchanges the two. Attachments, slash commands and the queue stay in the main message box. Notifications stay quiet
+exchanges the two. A message sent there while Claude works is queued like in the main box (the queue list, attachments
+and slash commands are in the main message box). Notifications stay quiet
 for a conversation you can see in either pane.
 
 ## Git and worktrees
@@ -175,6 +186,19 @@ keeps a small list of sessions that are working, so at the next start it can off
 - Scheduled runs are never continued this way, and a session you stopped yourself is not on the list.
 - A turn cut off in the middle of a deploy, push or migration may have stopped half-way; look at those sessions.
 
+## Learning
+
+*Settings → Learning* shows what Claude learned from your sessions, when the profile's config folder has a
+`learning/` folder written by hooks (any hook setup that follows this layout works):
+
+- `learning/inbox.jsonl`: one JSON object per line (`id`, `ts`, `type` such as `correction`, `explicit` or
+  `skill-candidate`, `status` `pending`/`applied`/`skipped`, `cwd`, `text`). Pending lessons can be skipped or put
+  back; *Review with /reflect* puts `/reflect` in the message box for a skill of that name to process them.
+- `learning/skill-usage.jsonl`: one line per Skill call (`ts`, `skill`, `failed`), counted over 60 days next to
+  every skill whose frontmatter has `metadata.origin: learned`.
+- `learning/garden/*.md`: upkeep reports.
+- When the config folder is a git repository, its recent commits are listed and each change can be opened.
+
 ## Limit resets
 
 The *Reset for free* resets of a claude.ai account can only be used through Claude Code itself. `/limit-reset` (or
@@ -187,8 +211,8 @@ command for every plan (it answers *Unknown command* where it is off).
 
 - **MCP resources** (listing and `@server:uri` completion): the Agent SDK offers no way to list them. A hand-typed
   `@server:uri` still reaches Claude Code, which resolves it itself.
-- Automatic continue after a usage limit and scheduled tasks were tested against a fake session manager and injected
-  events, not with real model calls; try them once on a cheap task.
+- Automatic continue after a usage limit, the held queue and scheduled tasks were tested against a fake session manager
+  and injected events, not with a real limit; try them once on a cheap task.
 - `node-pty` has no prebuilt binaries for Linux, where it is compiled on install; if that fails the basic terminal is
   used.
 - Preview of an HTML file does not load its relative images and styles.

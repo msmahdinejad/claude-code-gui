@@ -3,6 +3,31 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, minor versions may change the config format).
 
+## [Unreleased]
+
+## [0.9.0] - 2026-11-24
+
+### Added
+- **Server-side message queue** (`<dataDir>/outbox`): messages sent while Claude works, while a usage limit holds the
+  session or while earlier ones still wait are kept by the server. They survive a restart or a closed window and are
+  sent as soon as the session is free, also when the conversation is not on screen (before, a queued message only went
+  once you opened the conversation, and a restart lost it). Waiting messages can be edited, sent now or removed; a failed
+  send is retried, then paused with *Try again*. The split pane queues as well.
+- **Usage limits hold the queue**: after a claude.ai limit stops a turn, nothing more is sent into the limit. At the
+  reset the cut-off turn is continued first (automatic continue, now done by the server, so no window has to be open),
+  then the queue follows. The banner tells how many messages wait and has *Send now* to skip the wait.
+- **Drafts on the server** (`<dataDir>/drafts`): the text and attachments of every message box survive a restart, a
+  closed window and another address or port.
+- **Settings → Learning**: a view of a learning loop kept in the profile folder (`<config>/learning`): lessons caught by hooks and waiting for review (skip or put back; *Review with /reflect* fills the message box), learned skills with how often each skill was used and failed in the last 60 days, upkeep reports, and the local git history of the config folder with each change viewable. Read-only except the inbox status; every part is optional.
+
+### Fixed
+- A session whose turn has ended but whose background subagents still work now shows as working (orange) in the
+  sidebar, the split pane, the *Running* filter and the tray, and the *finished* notification waits for them. Shells and
+  monitors left running in the background do not count. Resume after restart also counts such sessions as working.
+- A new session that never got a message failed its first send after a restart (*No conversation found*): it now starts
+  fresh with its id.
+- The *finished* notification no longer fires between two queued messages.
+
 ## [0.8.1] - 2026-11-22
 
 ### Added
