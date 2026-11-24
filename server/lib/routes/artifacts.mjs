@@ -2,6 +2,8 @@
 // .md or .mmd file each) are listed, versioned and served here for the Artifacts pane.
 //   - Versions: every time a file is looked at (list / get) and its content differs from the newest stored version, a snapshot
 //     is stored in <dataDir>/artifact-versions/<sha1(project)>/<name>/<n>.snap (max 50 per artifact).
+//   - Claude's own edits are also caught as they happen: when a session's Write/Edit/MultiEdit of an artifact returns, a
+//     version is stored at once, so every revision is kept even while nobody looks at the pane.
 //   - /api/artifacts/view serves the bytes with a locked-down CSP (opaque-origin sandbox, no network) so a page can be framed
 //     by the app or opened on its own in a browser tab.
 import { execFile } from "node:child_process";
@@ -38,7 +40,26 @@ export const kindOfName = (name) => (NAME_RE.test(String(name ?? "")) ? KIND_BY_
 const sha1 = (text) => createHash("sha1").update(text).digest("hex");
 const sha256 = (buffer) => createHash("sha256").update(buffer).digest("hex");
 
-export default function register({ route, config, HttpError }) {
+/** Artifact names a session message writes to: tool_use blocks of Write/Edit/MultiEdit whose path is in the artifacts folder. */
+export function artifactWrites(msg) {
+  const out = [];
+  if (msg?.type !== "assistant" || !Array.isArray(msg.message?.content)) return out;
+  for (const block of msg.message.content) {
+    if (block?.type !== "tool_use" || !["Write", "Edit", "MultiEdit"].includes(block.name)) continue;
+    const path = String(block.input?.file_path ?? "").replace(/\\/g, "/");
+    const m = /(?:^|\/)\.wheelhouse\/artifacts\/([^/]+)$/.exec(path);
+    if (m && NAME_RE.test(m[1])) out.push({ id: block.id, name: m[1], path: block.input.file_path });
+  }
+  return out;
+}
+
+/** The tool_use ids a session message answers (tool_result blocks of a user message), with whether each one failed. */
+export function toolResults(msg) {
+  if (msg?.type !== "user" || !Array.isArray(msg.message?.content)) return [];
+  return msg.message.content.filter((block) => block?.type === "tool_result" && block.tool_use_id).map((block) => ({ id: block.tool_use_id, error: Boolean(block.is_error) }));
+}
+
+export default function register({ route, config, manager, HttpError }) {
   const bad = (message) => new HttpError(400, message);
 
   async function projectRoot(cwd) {
@@ -122,11 +143,13 @@ export default function register({ route, config, HttpError }) {
   function snapshot(root, name, source = "claude") {
     return serialized(`${root}\0${name}`, async () => {
       const { file, info } = await artifactFile(root, name);
-      const buffer = await readFile(file);
-      const hash = sha256(buffer);
       const dir = versionDir(root, name);
       const index = await readIndex(dir);
       const last = index.versions.at(-1);
+      // Unchanged since the newest version (same size and modification time): no need to read and hash it again.
+      if (last && last.mtime === Math.round(info.mtimeMs) && last.size === info.size) return index;
+      const buffer = await readFile(file);
+      const hash = sha256(buffer);
       if (last && last.hash === hash) return index;
       await mkdir(dir, { recursive: true });
       const n = Math.max(index.next, (last?.n || 0) + 1);
@@ -140,6 +163,33 @@ export default function register({ route, config, HttpError }) {
       await writeFile(join(dir, "index.json"), JSON.stringify(index));
       return index;
     });
+  }
+
+  // ---- versions as Claude writes them ----------------------------------------------------------------------------
+  // Every session the manager reports is followed once: a Write/Edit of an artifact is remembered by its tool_use id, and
+  // when its tool_result arrives (the file is on disk now) that content is stored as a version.
+  const followed = new WeakSet();
+  function follow(live) {
+    if (!live || followed.has(live) || typeof live.on !== "function") return;
+    followed.add(live);
+    const pending = new Map(); // tool_use id -> name
+    live.on("event", ({ msg } = {}) => {
+      for (const write of artifactWrites(msg)) pending.set(write.id, write);
+      if (!pending.size) return;
+      for (const { id, error } of toolResults(msg)) {
+        const write = pending.get(id);
+        if (!write) continue;
+        pending.delete(id);
+        if (error || !live.cwd) continue;
+        const folder = dirname(dirname(dirname(resolve(live.cwd, write.path)))); // <project>/.wheelhouse/artifacts/<name>
+        projectRoot(folder).then((root) => snapshot(root, write.name, "claude")).catch(() => { /* gone, too large: the next look stores it */ });
+      }
+      if (pending.size > 200) pending.clear();
+    });
+  }
+  if (manager?.on) {
+    manager.on("session.state", (summary) => follow(manager.get?.(summary?.id)));
+    for (const live of manager.sessions?.values?.() || []) follow(live);
   }
 
   const publicVersion = ({ n, mtime, size, source }) => ({ n, mtime, size, source });

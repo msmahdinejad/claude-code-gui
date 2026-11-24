@@ -11,6 +11,17 @@ const MAX_LIST = 2000;
 const TERM_BUFFER_BYTES = 2 * 1024 * 1024;
 const IS_WIN = process.platform === "win32";
 
+// Credential stores that file links never show or hand to another app (folders anywhere in the path, or exact file names).
+const CREDENTIAL_DIRS = new Set([".ssh", ".gnupg", ".aws", ".azure", ".kube", ".password-store", ".docker"]);
+const CREDENTIAL_FILES = new Set([".credentials.json", ".git-credentials", ".netrc", "_netrc", ".pgpass", ".npmrc", ".pypirc", "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"]);
+/** Is this (real, absolute) path a private key, a token store or inside a credentials folder? */
+export function isCredentialPath(path) {
+  const parts = String(path ?? "").toLowerCase().split(/[\\/]+/).filter(Boolean);
+  if (!parts.length) return false;
+  const name = parts.at(-1);
+  return CREDENTIAL_FILES.has(name) || /\.(pem|key|p12|pfx|keystore|jks)$/.test(name) || parts.slice(0, -1).some((part) => CREDENTIAL_DIRS.has(part));
+}
+
 export default function register({ route, HttpError, fsgit, config }) {
   // ---- helpers -------------------------------------------------------------------
   const bad = (message) => new HttpError(400, message);
@@ -566,6 +577,7 @@ export default function register({ route, HttpError, fsgit, config }) {
     const target = resolve(root, String(query.get("path") || ""));
     let real;
     try { real = await realpath(target); } catch { throw new HttpError(404, "not found"); }
+    refuseCredentials(real);
     const inside = within(root, real);
     const max = Math.min(Math.max(Number(query.get("max")) || 1_000_000, 1), 4_000_000);
     const info = await fsgit.readTextFile(real, { max });
@@ -575,6 +587,13 @@ export default function register({ route, HttpError, fsgit, config }) {
   // ---- file links: which of the paths Claude mentioned exist, and what the OS may do with them ------------
   const MAX_RESOLVE = 80;
   const MAX_BARE_SEARCHES = 10;
+  // Viewing is allowed wherever you can read (like the rest of the app; editing stays inside the project folder), except
+  // the usual credential stores: a path printed in a chat, or planted by a prompt injection, must never put a private key
+  // or a token on screen with one click.
+
+  function refuseCredentials(real) {
+    if (isCredentialPath(real)) throw new HttpError(403, "this file holds credentials; Wheelhouse does not open it");
+  }
 
   /** Existence of the paths the chat mentions (relative ones against the session folder, then the repository root). Reads nothing. */
   route("POST", "/api/ws/fs/resolve", async ({ body }) => {
@@ -588,7 +607,7 @@ export default function register({ route, HttpError, fsgit, config }) {
       try { info = await stat(candidate); } catch { return null; }
       if (!info.isFile() && !info.isDirectory()) return null;
       const real = await realpath(candidate).catch(() => null);
-      if (!real) return null;
+      if (!real || isCredentialPath(real)) return null;
       const inside = within(root, real);
       return { exists: true, dir: info.isDirectory(), abs: real, inside, rel: inside ? relative(root, real).split(sep).join("/") : null, size: info.isFile() ? info.size : null };
     };
@@ -617,7 +636,7 @@ export default function register({ route, HttpError, fsgit, config }) {
     let real;
     try { real = await realpath(resolve(root, String(query.get("path") || ""))); } catch { return { exists: false }; }
     const info = await stat(real).catch(() => null);
-    if (!info) return { exists: false };
+    if (!info || isCredentialPath(real)) return { exists: false };
     return { exists: true, kind: info.isDirectory() ? "dir" : "file", size: info.size, mtime: info.mtimeMs, inside: within(root, real) };
   });
 
@@ -669,6 +688,7 @@ export default function register({ route, HttpError, fsgit, config }) {
     try { real = await realpath(resolve(root, String(body.path ?? ""))); } catch { throw new HttpError(404, "not found"); }
     const info = await stat(real);
     const action = String(body.action || "default");
+    if (action !== "reveal") refuseCredentials(real);
     const line = Number.isInteger(body.line) && body.line > 0 && body.line < 10_000_000 ? body.line : 0;
     const dry = Boolean(process.env.WHEELHOUSE_NO_OPEN); // tests: validate, but start nothing
     if (action === "reveal") {
