@@ -12,6 +12,7 @@
     "workspaceRoot": { "type": "string", "description": "Parent folder for \"new folder\" sessions. Default <Documents>/Claude." },
     "systemPromptAppend": { "type": "string", "description": "Text appended to Claude Code's system prompt for every session. Empty string disables it." },
     "autoTitle": { "type": "boolean", "description": "Name new sessions with a short model-written title after the first reply (one small extra request). Default true." },
+    "artifacts": { "type": "boolean", "description": "Tell Claude it can write visual deliverables (pages, charts, diagrams, documents, SVG) to .wheelhouse/artifacts/ so Wheelhouse shows them in the Artifacts pane. Default true; the Settings toggle wins; WHEELHOUSE_ARTIFACTS=0 turns it off." },
     "tray": {
       "type": "object",
       "description": "System tray icon (Windows). Also enabled with --tray.",

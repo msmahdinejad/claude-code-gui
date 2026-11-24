@@ -147,8 +147,12 @@ export function loadConfig({ argv = process.argv.slice(2), env = process.env, ho
     defaultProfile,
     // Give sessions the Claude-in-Chrome tools, which drive the Chrome that is already open (the Settings toggle wins).
     chrome: ["1", "true", "on", "yes"].includes(String(env.WHEELHOUSE_CHROME ?? raw.chrome ?? false).toLowerCase()),
+    // Tell Claude it can put visual deliverables in .wheelhouse/artifacts/ (shown in the Artifacts pane). The Settings toggle wins.
+    artifacts: ["0", "false", "off", "no"].includes(String(env.WHEELHOUSE_ARTIFACTS ?? raw.artifacts ?? true).toLowerCase()) ? false : true,
     // Where links clicked in the standalone window open: your default browser, or specifically Chrome.
     linkBrowser: raw.linkBrowser === "chrome" ? "chrome" : "default",
+    // "Open in editor" on a file link: the editor's executable (empty = VS Code / Cursor where they are usually installed).
+    editor: String(env.WHEELHOUSE_EDITOR ?? raw.editor ?? "").trim(),
     // Name new sessions with a short model-written title after the first reply (one small extra request).
     autoTitle: !["0", "false", "off"].includes(String(env.WHEELHOUSE_AUTO_TITLE ?? raw.autoTitle ?? true).toLowerCase()),
     tray: {

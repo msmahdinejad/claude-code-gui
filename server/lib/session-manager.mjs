@@ -17,6 +17,12 @@ const CHROME_HINT =
   "Do not start another browser (agent-browser, Playwright, Puppeteer, a new Chrome process) unless the user asks for it. " +
   "If those tools report that no browser is connected, say so and tell the user the Claude in Chrome extension is not connected, instead of starting a new browser.";
 
+/** Appended to the system prompt when artifacts are on: where visual deliverables go so the Artifacts pane can show them. */
+export const ARTIFACT_HINT =
+  "Wheelhouse shows visual deliverables (a page, dashboard, chart, diagram, document, SVG) in a side pane. Write each one as ONE self-contained file in .wheelhouse/artifacts/ under the current working directory, with a short kebab-case name: " +
+  ".html (inline CSS and JS; network requests are blocked; no localStorage or cookies; for charts use the bundled Chart.js with <script src=\"/vendor/chart.umd.js\"></script> or libraries from cdnjs.cloudflare.com, cdn.jsdelivr.net or unpkg.com; responsive; dark and light via prefers-color-scheme; <html dir=\"rtl\"> and a Persian-capable font stack when the user writes Persian), .svg, .md, or .mmd (Mermaid source only, no code fences). " +
+  "To revise one, edit the same file (every change is kept as a version) instead of creating a new file. Keep the chat reply to a short description, not the content. Do not use this for the user's project source files or for small snippets.";
+
 function publicRequest(options) {
   const { signal, ...rest } = options || {};
   return rest;
@@ -119,6 +125,11 @@ export class ClaudeSession extends EventEmitter {
     return Boolean(this.manager.prefs().useChrome ?? this.manager.config.chrome);
   }
 
+  /** The Settings toggle wins; otherwise the `artifacts` option of the config file. */
+  useArtifacts() {
+    return Boolean(this.manager.prefs().artifacts ?? this.manager.config.artifacts);
+  }
+
   // ---- lifecycle -----------------------------------------------------------------
   buildOptions() {
     const meta = this.meta;
@@ -178,6 +189,7 @@ export class ClaudeSession extends EventEmitter {
       options.extraArgs = { ...(options.extraArgs || {}), chrome: null };
       options.systemPrompt.append = [options.systemPrompt.append, CHROME_HINT].filter(Boolean).join("\n\n");
     }
+    if (this.useArtifacts()) options.systemPrompt.append = [options.systemPrompt.append, ARTIFACT_HINT].filter(Boolean).join("\n\n");
     if (meta.extraArgs && typeof meta.extraArgs === "object") options.extraArgs = { ...(options.extraArgs || {}), ...meta.extraArgs };
     if (meta.worktree) options.extraArgs = { ...(options.extraArgs || {}), worktree: meta.worktree === true ? null : meta.worktree };
     return options;

@@ -155,7 +155,9 @@ function sameOrigin(req) {
   // Browsers say where a request comes from even when they send no Origin (<img>, <script>, navigation): only the page
   // itself may call the API. Tools without these headers (the tray, curl) keep working for GET.
   const site = req.headers["sec-fetch-site"];
-  if (site !== undefined && site !== "same-origin") return false;
+  // A page opened on its own (artifact "Open in browser": the address bar / a launched browser sends "none") is allowed for that one GET.
+  const standalonePage = site === "none" && req.method === "GET" && /^\/api\/artifacts\/view(\?|$)/.test(req.url || "");
+  if (site !== undefined && site !== "same-origin" && !standalonePage) return false;
   const referer = req.headers.referer;
   if (referer && !isOwnOrigin(referer)) return false;
   const origin = req.headers.origin;
@@ -413,6 +415,7 @@ route("GET", "/api/config", async () => ({
   home: homedir(),
   platform: process.platform,
   chrome: Boolean(store.data.prefs.useChrome ?? config.chrome),
+  artifacts: Boolean(store.data.prefs.artifacts ?? config.artifacts),
   nativeNotifications: config.tray.enabled && process.platform === "win32", // the tray shows them, the page need not
   prefs: store.data.prefs,
   recentProjects: store.data.recentProjects,
