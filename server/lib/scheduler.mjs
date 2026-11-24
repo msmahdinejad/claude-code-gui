@@ -612,6 +612,7 @@ export class TaskScheduler {
     // send to an unknown id would quietly start a brand new session instead.
     const found = this.lookupSession ? await Promise.resolve(this.lookupSession(task.sessionId)).catch(() => undefined) : undefined;
     if (found === null) return fail("failed", "The session was not found (deleted, or it belongs to another connection profile)");
+    run.sessionId = task.sessionId; // the history links to it (an archived session can still be opened and restored)
     if (found?.archived) return fail("failed", "The session is archived: restore it or choose another");
     const cwd = found?.cwd || task.cwd;
     if (!(await this.isDir(cwd))) return fail("failed", `The folder does not exist: ${cwd}`);

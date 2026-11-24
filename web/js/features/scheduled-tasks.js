@@ -308,7 +308,7 @@ registerSettingsSection({
         await act(() => api.put("/api/schedule/enabled", { enabled: wanted }));
       });
       host.replaceChildren(
-        h("div.banner.info", icon("info", 14), h("span", t("Tasks run only while Wheelhouse is open and this computer is awake. After a restart, a task that missed a run is run once for its latest missed time (within the last 7 days). Each run is a new session and uses your account's usage."))),
+        h("div.banner.info", icon("info", 14), h("span", t("Tasks run only while Wheelhouse is open and this computer is awake. After a restart, a task that missed a run is run once for its latest missed time (within the last 7 days). Each run is a new session (or goes into the session you chose) and uses your account's usage."))),
         data.timeZone ? h("p.muted.small", { dir: "auto" }, t("Times are read in this computer's time zone: {zone}.", { zone: data.timeZone })) : null,
         h(
           "div.group",
