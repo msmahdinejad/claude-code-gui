@@ -5,7 +5,7 @@ import { icon } from "../core/icons.js";
 import { t } from "../core/i18n.js";
 import { app, bus } from "../core/state.js";
 import { findToolRenderer, registerToolRenderer } from "../core/registry.js";
-import { highlight, renderMarkdown, textDirection } from "./markdown.js";
+import { highlight, renderMarkdown, textDirection, decorateMarkdown } from "./markdown.js";
 import { toolResultText } from "./reducer.js";
 
 const MAX_LINES = 60;
@@ -86,7 +86,8 @@ export function diffView(lines, { startLine, maxLines = 120 } = {}) {
 }
 
 export function filePath(path, extra = "") {
-  return h("button.file-chip", { type: "button", title: path, onclick: (event) => { event.stopPropagation(); bus.emit("open-file", { path }); } }, icon("file", 13), h("span", baseName(path) + extra));
+  // data-file-path: a click opens the file beside the chat and a right click shows the file menu (features/file-actions.js).
+  return h("button.file-chip", { type: "button", title: path, dataset: { filePath: path }, onclick: (event) => { event.stopPropagation(); bus.emit("open-file", { path }); } }, icon("file", 13), h("span", baseName(path) + extra));
 }
 
 function textOf(tool) {
@@ -220,7 +221,7 @@ registerToolRenderer("WebFetch", {
   summary: (tool) => clip(tool.input?.url || ""),
   body: (tool) => [
     tool.input?.prompt ? section(t("Prompt"), h("div.muted", { dir: "auto" }, tool.input.prompt)) : null,
-    textOf(tool) ? section(t("Result"), h("div.markdown", { html: renderMarkdown(textOf(tool)) })) : null,
+    textOf(tool) ? section(t("Result"), decorateMarkdown(h("div.markdown", { html: renderMarkdown(textOf(tool)) }))) : null,
   ],
 });
 
@@ -230,7 +231,7 @@ registerToolRenderer(["WebSearch", "web_search"], {
   summary: (tool) => clip(tool.input?.query || ""),
   body(tool) {
     const text = textOf(tool);
-    return [text ? section(t("Result"), h("div.markdown", { html: renderMarkdown(text) })) : null];
+    return [text ? section(t("Result"), decorateMarkdown(h("div.markdown", { html: renderMarkdown(text) }))) : null];
   },
 });
 
@@ -296,7 +297,7 @@ registerToolRenderer(["Task", "Agent"], {
     parts.push(taskLine(tool));
     // What the subagent wrote along the way (its own messages, not the final report).
     if (tool.notes?.length) {
-      parts.push(section(t("Subagent messages"), h("div.sub-notes", tool.notes.slice(-4).map((note) => h("div.markdown", { html: renderMarkdown(note) })))));
+      parts.push(section(t("Subagent messages"), h("div.sub-notes", tool.notes.slice(-4).map((note) => decorateMarkdown(h("div.markdown", { html: renderMarkdown(note) }))))));
     }
     if (tool.children?.length) {
       parts.push(
@@ -311,7 +312,7 @@ registerToolRenderer(["Task", "Agent"], {
     }
     const text = textOf(tool);
     // A backgrounded subagent's call only answers "launched"; its work is what is shown above.
-    if (text && !/^\s*Async agent launched/i.test(text)) parts.push(section(t("Report"), h("div.markdown", { html: renderMarkdown(text) })));
+    if (text && !/^\s*Async agent launched/i.test(text)) parts.push(section(t("Report"), decorateMarkdown(h("div.markdown", { html: renderMarkdown(text) }))));
     return parts;
   },
   defaultOpen: (tool) => tool.status === "running",
@@ -339,7 +340,7 @@ registerToolRenderer(["ExitPlanMode", "EnterPlanMode"], {
   icon: "list",
   title: (tool) => (tool.name === "ExitPlanMode" ? t("Plan") : t("Enter plan mode")),
   summary: (tool) => (tool.status === "done" ? t("Approved") : tool.status === "denied" ? t("Rejected") : ""),
-  body: (tool) => [tool.input?.plan ? h("div.markdown.plan", { html: renderMarkdown(tool.input.plan) }) : null],
+  body: (tool) => [tool.input?.plan ? decorateMarkdown(h("div.markdown.plan", { html: renderMarkdown(tool.input.plan) })) : null],
   defaultOpen: () => true,
 });
 

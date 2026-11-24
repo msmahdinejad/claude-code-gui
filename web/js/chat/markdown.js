@@ -1,6 +1,20 @@
 // Markdown -> sanitized HTML with syntax highlighting and per-block RTL/LTR direction.
 import { Marked, DOMPurify, hljs } from "../../vendor/md.js";
 import { t } from "../core/i18n.js";
+import { isFileHref } from "../core/file-path.js";
+
+// Fenced code blocks of these languages get an "Open as artifact" button (see features/artifacts.js).
+const ARTIFACT_LANGS = new Set(["html", "svg", "mermaid", "mmd"]);
+
+// Features decorate rendered markdown (file links, ...): decorateMarkdown(el, { streaming }) runs every hook on it.
+const markdownHooks = [];
+export function onMarkdownRendered(fn) { markdownHooks.push(fn); }
+export function decorateMarkdown(el, options = {}) {
+  for (const fn of markdownHooks) {
+    try { fn(el, options); } catch { /* a decoration must never break the message */ }
+  }
+  return el;
+}
 
 const RTL_RE = /[\p{Script=Arabic}\p{Script=Hebrew}]/u;
 const RTL_LETTER = /[\p{Script=Arabic}\p{Script=Hebrew}]/gu;
@@ -45,6 +59,7 @@ const marked = new Marked({
       const language = (lang || "").split(/\s+/)[0];
       return (
         `<div class="code-block" dir="ltr"><div class="code-head"><span class="code-lang">${escapeHtml(language || "text")}</span>` +
+        (ARTIFACT_LANGS.has(language.toLowerCase()) ? `<button class="copy-code" type="button" data-artifact-open>${escapeHtml(t("Open as artifact"))}</button>` : "") +
         `<button class="copy-code" type="button" data-copy-code>${escapeHtml(t("Copy"))}</button></div>` +
         `<pre><code class="hljs${language ? ` language-${escapeHtml(language)}` : ""}">${highlight(text, language)}</code></pre></div>`
       );
@@ -52,6 +67,8 @@ const marked = new Marked({
     link({ href, title, tokens }) {
       const label = this.parser.parseInline(tokens);
       const safe = /^(https?:|mailto:|#)/i.test(href) ? href : "#";
+      // A link to a file ("[a.ts](src/a.ts#L3)", "file:///D:/x.md"): features/file-actions.js turns it into a file link.
+      if (safe === "#" && isFileHref(href)) return `<a href="#" data-file-href="${escapeHtml(href)}"${title ? ` title="${escapeHtml(title)}"` : ""}>${label}</a>`;
       return `<a href="${escapeHtml(safe)}"${title ? ` title="${escapeHtml(title)}"` : ""} target="_blank" rel="noreferrer noopener">${label}</a>`;
     },
   },
@@ -69,7 +86,7 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
 });
 
 const PURIFY = {
-  ADD_ATTR: ["target", "data-copy-code"],
+  ADD_ATTR: ["target", "data-copy-code", "data-artifact-open", "data-file-href"],
   ADD_TAGS: ["button"],
   FORBID_TAGS: ["style", "script", "iframe", "object", "embed", "form"],
 };

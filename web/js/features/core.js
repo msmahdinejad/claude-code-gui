@@ -130,6 +130,27 @@ registerSettingsSection({
           return h("label.switch", input);
         })()),
       ),
+      h("div.group", h("h3", t("Artifacts")),
+        row(t("Artifacts"), t("Tell Claude it can write pages, charts, diagrams and documents to .wheelhouse/artifacts/ of the project; they open in the Artifacts panel with every version kept. Applies to new and restarted sessions."), (() => {
+          const input = h("input", { type: "checkbox", checked: app.config?.artifacts !== false });
+          input.addEventListener("change", async () => {
+            try {
+              await api.put("/api/prefs", { artifacts: input.checked });
+              app.config = await api.config();
+              toast(t("Applies to new and restarted sessions."), "info", 2500);
+            } catch (error) {
+              input.checked = !input.checked;
+              toast(errorMessage(error), "error");
+            }
+          });
+          return h("label.switch", input);
+        })()),
+        row(t("Open new artifacts automatically"), t("Show the Artifacts panel when Claude writes or changes an artifact while it works."), (() => {
+          const input = h("input", { type: "checkbox", checked: app.prefs.artifactsAutoOpen !== false });
+          input.addEventListener("change", () => setPrefs({ artifactsAutoOpen: input.checked }));
+          return h("label.switch", input);
+        })()),
+      ),
     );
   },
 });

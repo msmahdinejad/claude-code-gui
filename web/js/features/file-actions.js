@@ -1,6 +1,8 @@
-// File links everywhere: every path Claude mentions (answers, tool cards, diffs, lists) is a link that shows the file name,
-// opens the file beside the conversation (the Files tab) and has a right-click menu (open in the editor / default app,
-// show in the folder, copy path, copy as @mention...).
+// File links everywhere, like Claude Desktop: every path Claude mentions (answers, markdown links, tool cards, lists) is a
+// link that shows the file name and opens the file beside the conversation: HTML and PDF of the project in the Preview tab
+// (Desktop's Browser pane), artifacts in the Artifacts tab, everything else in the Files tab (view, edit, save). A right
+// click shows Claude Desktop's file menu: Attach as context, Open in (editor), Show in Explorer/Finder, Copy (absolute
+// path, relative path, file name); plus "Open beside the chat" and "Open in default app" (documents and media only).
 //
 // Markup contract (used by the chat, the tool cards, the Files tree and the Changes list):
 //   [data-file-path="…"]       clickable: a click opens the file beside the chat (optional data-file-line, data-file-abs)
@@ -10,8 +12,9 @@ import { icon } from "../core/icons.js";
 import { t } from "../core/i18n.js";
 import { app, bus } from "../core/state.js";
 import { api } from "../core/api.js";
-import { findPathsInText, parsePathRef, hrefToRef, isFileHref, linkLabel, mentionFor, baseNameOf, dirNameOf } from "../core/file-path.js";
+import { findPathsInText, parsePathRef, hrefToRef, isFileHref, linkLabel, mentionFor, baseNameOf, dirNameOf, SAFE_OPEN_EXT } from "../core/file-path.js";
 import { cwdNow, relToCwd } from "./workspace-common.js";
+import { onMarkdownRendered } from "../chat/markdown.js";
 
 export { isFileHref, hrefToRef };
 
@@ -58,9 +61,36 @@ export async function resolvePaths(paths) {
 const resolveOne = async (path) => (await resolvePaths([path]))[path] || { exists: false };
 
 // ---- opening -------------------------------------------------------------------------
-/** Show a file beside the conversation (the Files tab of the side panel). */
-export function openFileRef(ref) {
+const ARTIFACT_RE = /(?:^|[\\/])\.wheelhouse[\\/]artifacts[\\/]([^\\/]+\.(?:html?|svg|md|mmd))$/i;
+const PREVIEW_RE = /\.(html?|pdf)$/i;
+
+const insideCwd = (path) => { const rel = relToCwd(absoluteOf(path)); return rel !== null && !rel.startsWith("../"); };
+
+/** Where a click on a file link goes: "artifact" (Artifacts tab), "preview" (HTML/PDF of the project) or "files". */
+export function fileTarget(ref, info = {}) {
+  const path = ref?.abs || ref?.path || "";
+  if (ARTIFACT_RE.test(path)) return "artifact";
+  if (PREVIEW_RE.test(path) && !ref?.line && (info.inside ?? insideCwd(path))) return "preview";
+  return "files";
+}
+
+/** Show a file beside the conversation: the Artifacts, Preview or Files tab of the side panel. */
+export async function openFileRef(ref, { plain = false } = {}) {
   if (!ref?.path) return;
+  const target = plain ? "files" : fileTarget(ref);
+  if (target === "artifact") {
+    bus.emit("artifact:open", { name: ARTIFACT_RE.exec(ref.abs || ref.path)[1] });
+    return;
+  }
+  if (target === "preview") {
+    const rel = relToCwd(absoluteOf(ref.abs || ref.path));
+    if (rel && !rel.startsWith("../")) {
+      const { openInspector } = await import("../ui/inspector.js");
+      openInspector("preview");
+      bus.emit("preview:open", { file: rel });
+      return;
+    }
+  }
   bus.emit("open-file", { path: ref.abs || ref.path, line: ref.line });
 }
 
@@ -85,16 +115,16 @@ async function systemOpen(ref, action) {
 
 const revealLabel = () => (app.config?.platform === "win32" ? t("Show in File Explorer") : app.config?.platform === "darwin" ? t("Show in Finder") : t("Show in folder"));
 
-function addToMessage(path) {
+/** Put an @mention of a file into the message box (Claude Desktop's "Attach as context"). */
+export function addToMessage(path, { quiet = false } = {}) {
   const mention = mentionFor(path);
-  bus.emit("composer:insert", mention);
   const input = document.querySelector(".cmp-input");
   if (input) {
     input.value = `${input.value}${input.value && !/\s$/.test(input.value) ? " " : ""}${mention} `;
     input.dispatchEvent(new Event("input"));
     input.focus();
   }
-  toast(t("Added {path} to the message", { path: mention }), "ok", 1800);
+  if (!quiet) toast(t("Added {path} to the message", { path: mention }), "ok", 1800);
 }
 
 /** The items of the right-click menu for a file (also used by the "…" button of the file viewer). */
@@ -105,20 +135,24 @@ export async function fileMenuItems(ref) {
   const here = { ...ref, abs: info.exists ? info.abs : ref.abs };
   const missing = !info.exists;
   const name = baseNameOf(abs);
+  const ext = name.includes(".") ? name.split(".").pop().toLowerCase() : "";
+  const target = fileTarget(here, info);
+  // Claude Desktop's menu (Attach as context, Open in, Show in Explorer/Finder, Copy ▸ Absolute path / Relative path /
+  // Filename) with the side-panel actions first; Desktop's "Copy" submenu is a labelled group here.
   return [
     missing ? { header: t("File not found") } : null,
-    { label: t("Open beside the chat"), icon: "panel-right", disabled: missing, onClick: () => openFileRef(here) },
+    { label: target === "artifact" ? t("Open in Artifacts") : target === "preview" ? t("Open in Preview") : t("Open beside the chat"), icon: target === "files" ? "panel-right" : "eye", disabled: missing, onClick: () => openFileRef(here) },
+    target !== "files" ? { label: t("View source"), icon: "file-text", disabled: missing, onClick: () => openFileRef(here, { plain: true }) } : null,
+    { label: t("Attach as context"), icon: "at", disabled: missing, onClick: () => addToMessage(rel ?? abs) },
+    "-",
     { label: t("Open in editor"), icon: "edit", disabled: missing || info.dir, onClick: () => systemOpen(here, "editor") },
-    { label: t("Open in default app"), icon: "external", disabled: missing, onClick: () => systemOpen(here, "default") },
+    SAFE_OPEN_EXT.has(ext) || info.dir ? { label: t("Open in default app"), icon: "external", disabled: missing, onClick: () => systemOpen(here, "default") } : null,
     { label: revealLabel(), icon: "folder-open", disabled: missing, onClick: () => systemOpen(here, "reveal") },
     "-",
-    { label: t("Copy path"), icon: "copy", onClick: () => copyText(abs) },
-    rel ? { label: t("Copy relative path"), icon: "copy", onClick: () => copyText(rel) } : null,
-    { label: t("Copy file name"), icon: "copy", onClick: () => copyText(name) },
-    ref.line ? { label: t("Copy path with line"), icon: "copy", onClick: () => copyText(`${abs}:${ref.line}`) } : null,
-    "-",
-    { label: t("Copy as @mention"), icon: "at", onClick: () => copyText(mentionFor(rel ?? abs)) },
-    { label: t("Add to message"), icon: "at", onClick: () => addToMessage(rel ?? abs) },
+    { header: t("Copy") },
+    { label: t("Absolute path"), icon: "copy", onClick: () => copyText(ref.line ? `${abs}:${ref.line}` : abs) },
+    rel ? { label: t("Relative path"), icon: "copy", onClick: () => copyText(ref.line ? `${rel}:${ref.line}` : rel) } : null,
+    { label: t("File name"), icon: "copy", onClick: () => copyText(name) },
   ].filter(Boolean);
 }
 
@@ -165,6 +199,18 @@ function makeLink(ref, info, text) {
 function apply(root) {
   let pending = false;
   const asked = [];
+  // markdown links to files ("[label](src/a.ts#L3)"): chat/markdown.js marks them with data-file-href
+  for (const link of root.querySelectorAll("a[data-file-href]:not([data-file-path])")) {
+    link.removeAttribute("target");
+    const ref = hrefToRef(link.dataset.fileHref);
+    if (!ref) continue;
+    const info = fresh(ref.path);
+    if (!info) { asked.push(ref.path); continue; }
+    if (!info.exists) { link.classList.add("file-missing"); link.title = t("File not found"); continue; }
+    link.classList.add("file-link");
+    link.title = info.abs;
+    Object.assign(link.dataset, dataFor({ path: info.rel ?? ref.path, abs: info.abs, line: ref.line }));
+  }
   // inline `code`: the whole text is one path
   for (const code of root.querySelectorAll("code")) {
     if (code.closest("pre, a, .file-link")) continue;
@@ -216,7 +262,7 @@ export function linkifyFiles(root, { streaming = false } = {}) {
   if (!root || !cwdNow()) return;
   const { asked } = apply(root);
   if (streaming || !asked.length) return;
-  resolvePaths(asked).then(() => { if (root.isConnected) apply(root); });
+  resolvePaths(asked).then(() => apply(root));
 }
 
 /** A markdown box (assistant text, a subagent's report, a plan) with its file paths linked. */
@@ -226,7 +272,18 @@ export function markdownNode(el) {
 }
 
 // ---- delegated events -----------------------------------------------------------------------
+onMarkdownRendered((el, { streaming } = {}) => linkifyFiles(el, { streaming }));
+
 if (typeof document !== "undefined") {
+  // A markdown link to a file that does not exist (or is not resolved yet) must not open the app again in a new tab.
+  document.addEventListener("click", (event) => {
+    const link = event.target instanceof Element ? event.target.closest("a[data-file-href]:not([data-file-path])") : null;
+    if (!link) return;
+    event.preventDefault();
+    event.stopPropagation();
+    toast(t("File not found"), "info", 1800);
+  }, true);
+
   const closestFile = (event, selector) => (event.target instanceof Element ? event.target.closest(selector) : null);
 
   document.addEventListener("click", (event) => {

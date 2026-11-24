@@ -1,16 +1,22 @@
 // Inspector tab "Files": lazy project tree, search, preview (code/markdown/image), editor with Save,
 // "Add to chat", and the `open-file` bus event emitted by tool cards.
-import { h, ibtn, toast, errorMessage, copyText, debounce, confirmDialog, baseName } from "../core/dom.js";
+import { h, ibtn, toast, errorMessage, copyText, debounce, confirmDialog, baseName, modal } from "../core/dom.js";
 import { icon } from "../core/icons.js";
 import { t } from "../core/i18n.js";
 import { app, bus } from "../core/state.js";
 import { api } from "../core/api.js";
 import { registerInspectorTab, registerCommand } from "../core/registry.js";
-import { renderMarkdown } from "../chat/markdown.js";
+import { renderMarkdown, decorateMarkdown } from "../chat/markdown.js";
+import { createCodeEditor } from "./code-editor.js";
+import { renderMermaidInto } from "./artifacts.js";
+import { showFileMenu } from "./file-actions.js";
 import { wsGet, wsPost, cwdNow, relToCwd, highlightLines, extOf, dirOf, fileName, formatBytes, loadingBox, errorBox, segmented } from "./workspace-common.js";
 
 const DIM = new Set(["node_modules", "dist", "build", ".venv", "venv", "__pycache__", ".next", "target", ".cache", "coverage", ".gradle", ".idea"]);
 const ICON_BY_EXT = { js: "file-text", mjs: "file-text", ts: "file-text", tsx: "file-text", jsx: "file-text", py: "file-text", json: "file-text", md: "book", png: "image", jpg: "image", jpeg: "image", gif: "image", webp: "image", svg: "image", css: "file-text", html: "globe", yml: "file-text", yaml: "file-text", txt: "file", sh: "terminal", ps1: "terminal" };
+
+const PREVIEWABLE = new Set(["md", "markdown", "svg", "mmd"]);
+const PAGE_EXT = new Set(["html", "htm", "pdf"]);
 
 const F = {
   cwd: null,
@@ -146,7 +152,8 @@ async function openFile(target, { line } = {}) {
     state.abs = info.path;
     state.rel = info.inside ? info.rel : null;
     state.content = info.content ?? "";
-    state.mdPreview = ["md", "markdown"].includes(extOf(state.abs)) ? true : undefined;
+    // Rendered view first for documents and pictures (like Claude Desktop's file pane), with a Source switch.
+    state.mdPreview = PREVIEWABLE.has(extOf(state.abs)) ? true : undefined;
     state.readOnly = !info.inside || info.truncated;
   } catch (error) {
     state.loading = false;
@@ -196,10 +203,29 @@ async function save({ force = false } = {}) {
     drawFile();
   } catch (error) {
     if (error.status === 409) {
-      const overwrite = await confirmDialog({ title: t("File changed on disk"), message: t("The file was modified outside this editor. Overwrite it with your version?"), confirmLabel: t("Overwrite"), danger: true });
-      if (overwrite) save({ force: true });
+      const choice = await conflictDialog(file);
+      if (choice === "overwrite") save({ force: true });
+      else if (choice === "discard") { file.draft = undefined; file.dirty = false; file.edit = false; openFile(file.abs, { line: file.line }); }
     } else toast(errorMessage(error), "error");
   }
+}
+
+/** The file changed on disk while it was being edited: keep my version (overwrite), take the disk version, or go on editing. */
+function conflictDialog(file) {
+  return new Promise((resolve) => {
+    let answer = "cancel";
+    modal({
+      title: t("File changed on disk"),
+      body: h("p.muted", t("“{name}” was changed outside this editor (by Claude or another program) after you opened it.", { name: fileName(file.abs || file.rel || "") })),
+      width: 460,
+      onClose: () => resolve(answer),
+      actions: [
+        { label: t("Keep editing"), onClick: (m) => m.close() },
+        { label: t("Discard my edits"), onClick: (m) => { answer = "discard"; m.close(); } },
+        { label: t("Overwrite"), variant: "danger", onClick: (m) => { answer = "overwrite"; m.close(); } },
+      ],
+    });
+  });
 }
 
 async function toggleEdit(file) {
@@ -208,6 +234,12 @@ async function toggleEdit(file) {
   if (file.edit) { file.draft = undefined; file.dirty = false; }
   file.edit = !file.edit;
   drawFile();
+}
+
+async function openPage(file) {
+  const { openInspector } = await import("../ui/inspector.js");
+  openInspector("preview");
+  bus.emit("preview:open", { file: file.rel });
 }
 
 function addToChat(file) {
@@ -242,9 +274,11 @@ function drawFile() {
           file.edit ? h("button.btn.small.primary", { type: "button", disabled: !file.dirty, onclick: () => save() }, icon("check", 13), t("Save")) : null,
         ]
       : null,
+    file.info && file.info.inside && PAGE_EXT.has(extOf(file.abs)) ? h("button.btn.small", { type: "button", onclick: () => openPage(file) }, icon("eye", 13), t("Preview")) : null,
     ibtn("at", t("Add to chat"), () => addToChat(file), { size: 15 }),
     ibtn("copy", t("Copy path"), () => copyText(file.abs), { size: 15 }),
     ibtn("refresh", t("Reload"), () => openFile(file.abs), { size: 15 }),
+    ibtn("more-horizontal", t("More"), (event) => showFileMenu(event.currentTarget, { path: file.rel ?? file.abs, abs: file.abs }), { size: 15 }),
   );
   els.file.append(head);
   if (file.readOnly && file.info?.kind === "text") els.file.append(h("div.banner.info", icon("lock", 14), h("span", file.info.truncated ? t("Large file: showing the first part, read-only.") : t("Outside the project folder — read-only."))));
@@ -260,38 +294,45 @@ function drawFile() {
     return;
   }
   if (file.edit) {
-    const editor = h("textarea.input.editor.ws-editor", { spellcheck: "false", dir: "ltr", wrap: "off" });
-    editor.value = file.draft ?? file.content;
-    editor.addEventListener("input", () => {
-      file.draft = editor.value;
-      file.dirty = editor.value !== file.content;
-      drawFileDirty();
+    const editor = createCodeEditor({
+      value: file.draft ?? file.content,
+      lang: extOf(file.abs),
+      label: t("Editor"),
+      onChange: (value) => {
+        file.draft = value;
+        file.dirty = value !== file.content;
+        drawFileDirty();
+      },
+      onSave: () => save(),
     });
-    editor.addEventListener("keydown", (event) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") { event.preventDefault(); save(); }
-      if (event.key === "Tab" && !event.shiftKey) {
-        event.preventDefault();
-        const { selectionStart: s, selectionEnd: e } = editor;
-        editor.setRangeText("  ", s, e, "end");
-        editor.dispatchEvent(new Event("input"));
-      }
-    });
-    const remember = () => { file.sel = [editor.selectionStart, editor.selectionEnd, editor.scrollTop]; };
-    editor.addEventListener("select", remember);
-    editor.addEventListener("keyup", remember);
-    editor.addEventListener("mouseup", remember);
-    editor.addEventListener("scroll", remember, { passive: true });
-    els.editor = editor;
-    els.file.append(editor);
+    const area = editor.textarea;
+    const remember = () => { file.sel = [area.selectionStart, area.selectionEnd, area.scrollTop]; };
+    for (const name of ["select", "keyup", "mouseup"]) area.addEventListener(name, remember);
+    area.addEventListener("scroll", remember, { passive: true });
+    els.editor = area;
+    els.file.append(editor.el);
     drawFileDirty();
     queueMicrotask(() => {
       editor.focus();
-      if (file.sel) { editor.setSelectionRange(file.sel[0], file.sel[1]); editor.scrollTop = file.sel[2]; }
+      if (file.sel) editor.setSelection(file.sel[0], file.sel[1], file.sel[2]);
+      else if (file.line) editor.goToLine(file.line);
     });
     return;
   }
   if (file.mdPreview) {
-    els.file.append(h("div.markdown.ws-md", { html: renderMarkdown(file.content) }));
+    const ext = extOf(file.abs);
+    if (ext === "svg") {
+      // As an <img>: an SVG shown this way never runs its scripts or loads anything.
+      const url = URL.createObjectURL(new Blob([file.content], { type: "image/svg+xml" }));
+      const img = h("img", { src: url, alt: fileName(file.abs), onload: () => URL.revokeObjectURL(url), onerror: () => URL.revokeObjectURL(url) });
+      els.file.append(h("div.ws-image.checker", img));
+    } else if (ext === "mmd") {
+      const host = h("div.ws-mermaid");
+      els.file.append(host);
+      renderMermaidInto(host, file.content);
+    } else {
+      els.file.append(decorateMarkdown(h("div.markdown.ws-md", { html: renderMarkdown(file.content) })));
+    }
     return;
   }
   const lang = extOf(file.abs);
