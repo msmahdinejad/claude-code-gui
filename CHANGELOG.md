@@ -5,6 +5,8 @@ and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, mi
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-25
+
 ### Added
 - **Scheduled tasks can run inside an existing session.** In the task editor, *Where to run → Inside an existing session*
   with a picker (recent sessions with title and folder, or a pasted session id). At the scheduled time the prompt joins

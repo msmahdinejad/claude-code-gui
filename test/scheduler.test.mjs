@@ -617,7 +617,7 @@ test("in a session: a usage limit holds the prompt until it resets, and the wait
   const ctx = await inSession();
   try {
     const live = ctx.open(SESSION, ctx.folder);
-    ctx.manager.emit("session.limit", { id: SESSION, info: { status: "rejected", resetsAt: Date.now() + 250, rateLimitType: "five_hour" } });
+    ctx.manager.emit("session.limit", { id: SESSION, info: { status: "rejected", resetsAt: Date.now() + 900, rateLimitType: "five_hour" } });
     assert.equal(ctx.outbox.held(SESSION), true);
     const created = await ctx.create();
     await ctx.scheduler.runNow(created.id);

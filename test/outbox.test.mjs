@@ -8,6 +8,8 @@ import { Outbox, CONTINUE_TEXT, MAX_AUTO } from "../server/lib/outbox.mjs";
 import { Notifier } from "../server/lib/notifier.mjs";
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Wait until `done()` holds (a loaded machine is slow; a fixed sleep made these tests flaky), at most `ms`. */
+const until = async (done, ms = 3000) => { for (const end = Date.now() + ms; !done() && Date.now() < end;) await wait(10); };
 const ID = "sess-1";
 
 /** A manager with one fake session whose state the test drives; `sent` records what reached it. */
@@ -79,15 +81,15 @@ test("outbox: a usage limit holds the queue; at the reset the cut-off turn is co
   const { manager, outbox, sent, setState, cleanup } = setup();
   setState("running");
   outbox.add(ID, { text: "queued" });
-  manager.emit("session.limit", { id: ID, info: { status: "rejected", resetsAt: Date.now() + 80, rateLimitType: "five_hour" } });
+  manager.emit("session.limit", { id: ID, info: { status: "rejected", resetsAt: Date.now() + 500, rateLimitType: "five_hour" } });
   setState("idle"); // the turn ended on the limit
   await wait(40);
   assert.equal(sent.length, 0, "nothing is sent into the limit");
   assert.equal(outbox.held(ID), true);
-  await wait(80);
+  await until(() => sent.length === 1);
   assert.deepEqual(sent.map((entry) => [entry.text, entry.source]), [[CONTINUE_TEXT, "auto-continue"]]);
   setState("idle"); // the continued turn finished
-  await wait(30);
+  await until(() => sent.length === 2);
   assert.deepEqual(sent.map((entry) => entry.text), [CONTINUE_TEXT, "queued"]);
   cleanup();
 });
@@ -95,11 +97,11 @@ test("outbox: a usage limit holds the queue; at the reset the cut-off turn is co
 test("outbox: with automatic continue off the reset leaves a notice and the queue goes on", async () => {
   const { manager, outbox, sent, setState, cleanup } = setup();
   outbox.setAuto(ID, false);
-  manager.emit("session.limit", { id: ID, info: { status: "rejected", resetsAt: Date.now() + 120 } });
+  manager.emit("session.limit", { id: ID, info: { status: "rejected", resetsAt: Date.now() + 500 } });
   outbox.add(ID, { text: "queued" });
   await wait(40);
   assert.equal(sent.length, 0);
-  await wait(250);
+  await until(() => sent.length > 0);
   assert.deepEqual(sent.map((entry) => entry.text), ["queued"]);
   assert.equal(outbox.view(ID).hold.reset, true, "the 'has reset' notice stays");
   assert.equal(outbox.held(ID), false, "but it holds nothing back");
@@ -172,7 +174,7 @@ test("outbox: the queue survives a restart and is sent afterwards", async () => 
 test("outbox: a failed send keeps the message, retries, then pauses until asked", async () => {
   const { outbox, sent, cleanup } = setup({ failTimes: 10, retryMs: [10, 10] });
   outbox.add(ID, { text: "stubborn" });
-  await wait(80);
+  await until(() => outbox.view(ID).paused);
   const view = outbox.view(ID);
   assert.equal(sent.length, 0);
   assert.equal(view.items.length, 1, "the message is still there");
@@ -225,15 +227,15 @@ test("outbox: a limit of the account holds the queues of its other sessions too"
   const { manager, outbox, sent, cleanup } = setup();
   const other = "sess-2";
   outbox.add(other, { text: "other queue" }); // sent at once: nothing holds it yet
-  await wait(20);
+  await until(() => sent.length === 1);
   assert.equal(sent.length, 1);
-  manager.emit("session.limit", { id: ID, info: { status: "rejected", resetsAt: Date.now() + 80, rateLimitType: "five_hour" } });
+  manager.emit("session.limit", { id: ID, info: { status: "rejected", resetsAt: Date.now() + 500, rateLimitType: "five_hour" } });
   outbox.add(other, { text: "waits for the reset" });
   await wait(30);
   assert.equal(sent.length, 1, "nothing goes into the account's limit");
   assert.equal(outbox.view(other).hold.account, true);
   assert.equal(outbox.held(other), true);
-  await wait(90);
+  await until(() => sent.some((entry) => entry.id === other && entry.text === "waits for the reset"));
   assert.ok(sent.some((entry) => entry.id === other && entry.text === "waits for the reset"), "sent after the reset");
   cleanup();
 });
