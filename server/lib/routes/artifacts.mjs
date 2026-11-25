@@ -19,6 +19,7 @@ export const ARTIFACT_DIR = ".wheelhouse/artifacts";
 export const MAX_ARTIFACT_BYTES = 5 * 1024 * 1024;
 export const MAX_VERSIONS = 50;
 const MAX_LIST = 500;
+const MTIME_QUIET_MS = 2000; // a file untouched this long before it was stored cannot hide a same-tick rewrite
 
 const HTML_CSP = [
   "sandbox allow-scripts allow-forms allow-modals allow-popups",
@@ -146,15 +147,17 @@ export default function register({ route, config, manager, HttpError }) {
       const dir = versionDir(root, name);
       const index = await readIndex(dir);
       const last = index.versions.at(-1);
-      // Unchanged since the newest version (same size and modification time): no need to read and hash it again.
-      if (last && last.mtime === Math.round(info.mtimeMs) && last.size === info.size) return index;
+      // Unchanged since the newest version (same size and modification time): no need to read and hash it again. Only when
+      // the file had been quiet for a while when it was stored: a second write in the same clock tick keeps the same mtime
+      // (file systems tick in milliseconds or coarser), and trusting it would drop that revision.
+      if (last && last.at && last.at - last.mtime > MTIME_QUIET_MS && last.mtime === Math.round(info.mtimeMs) && last.size === info.size) return index;
       const buffer = await readFile(file);
       const hash = sha256(buffer);
       if (last && last.hash === hash) return index;
       await mkdir(dir, { recursive: true });
       const n = Math.max(index.next, (last?.n || 0) + 1);
       await writeFile(join(dir, `${n}.snap`), buffer);
-      index.versions.push({ n, mtime: Math.round(info.mtimeMs), size: buffer.length, hash, source: SOURCES.has(source) ? source : "claude" });
+      index.versions.push({ n, mtime: Math.round(info.mtimeMs), at: Date.now(), size: buffer.length, hash, source: SOURCES.has(source) ? source : "claude" });
       index.next = n + 1;
       while (index.versions.length > MAX_VERSIONS) {
         const dropped = index.versions.shift();
