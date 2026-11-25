@@ -4,6 +4,7 @@ import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Outbox } from "../server/lib/outbox.mjs";
 import {
   PERMISSION_MODES, SchedulerError, TaskScheduler, dueRun, nextRun, previousRun, validateTask,
 } from "../server/lib/scheduler.mjs";
@@ -495,4 +496,513 @@ test("the run log keeps only the newest runs", async () => {
     assert.equal(runs.length, 5);
     assert.deepEqual(runs.map((run) => run.sessionId), ["s8", "s7", "s6", "s5", "s4"]);
   } finally { await ctx.cleanup(); }
+});
+
+// ---- inside an existing session ----------------------------------------------------------
+// The real send queue (Outbox) with a fake session: what a scheduled prompt does when the session is idle, busy, held by a
+// usage limit, closed, or when Wheelhouse restarts.
+const SESSION = "0cbdcfd7-f8c7-4e5e-9660-d108c3201124";
+
+async function until(check, what = "condition") {
+  for (let tries = 0; tries < 400; tries += 1) {
+    if (check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`timed out waiting for ${what}`);
+}
+
+async function inSession(options = {}) {
+  const manager = fakeManager();
+  manager.live = new Map();
+  manager.get = (id) => manager.live.get(id);
+  const outboxDir = await mkdtemp(join(tmpdir(), "wh-outbox-"));
+  const open = (id, cwd) => {
+    let live = manager.live.get(id);
+    if (!live) {
+      live = new EventEmitter();
+      Object.assign(live, { id, cwd, state: "idle", pending: new Map(), sent: [], interrupted: 0, closed: 0, alive: true });
+      live.interrupt = async () => { live.interrupted += 1; };
+      live.close = () => { live.closed += 1; };
+      live.summary = () => ({ id, state: live.state });
+      manager.live.set(id, live);
+    }
+    return live;
+  };
+  const outbox = new Outbox({
+    dir: outboxDir, manager, settleMs: 5, graceMs: 20, retryMs: [5, 5, 5],
+    send: async (id, entry) => {
+      if (options.failSend) throw new Error("the process would not start");
+      const live = open(id, entry.cwd);
+      live.sent.push(entry.text);
+      live.state = "running";
+      manager.emit("session.sent", { id, source: entry.source });
+    },
+  });
+  outbox.start({ startDelayMs: 60_000 });
+  const ctx = await setup({ ...options, manager, scheduler: { outbox: () => outbox, ensureSession: open, ...options.scheduler } });
+  const baseCleanup = ctx.cleanup;
+  const finishTurn = (id = SESSION, msg = { type: "result", is_error: false, num_turns: 4, total_cost_usd: 0.05 }) => {
+    const live = manager.live.get(id);
+    live.state = "idle";
+    live.emit("event", { seq: 1, msg });
+    manager.emit("session.state", live.summary());
+  };
+  const create = (extra = {}) => ctx.scheduler.create({ name: "Weekly report", prompt: "/weekly-report team", cwd: ctx.folder, sessionId: SESSION, frequency: "manual", ...extra });
+  const lastRun = (taskId) => ctx.scheduler.task(taskId).runs[0];
+  const cleanup = async () => { outbox.stop(); await baseCleanup(); await rm(outboxDir, { recursive: true, force: true }); };
+  return { ...ctx, outbox, open, finishTurn, create, lastRun, cleanup };
+}
+
+test("validateTask: a session id is kept, a bad one rejected, and a worktree makes no sense inside a session", () => {
+  assert.equal(validateTask(input()).sessionId, "");
+  assert.equal(validateTask(input({ sessionId: `  ${SESSION} ` })).sessionId, SESSION);
+  assert.equal(validateTask(input({ sessionId: null })).sessionId, "");
+  assert.equal(validateTask(input({ sessionId: SESSION, worktree: true })).worktree, false);
+  assert.equal(validateTask(input({ worktree: true })).worktree, true);
+  for (const bad of ["../x", "a b", "x".repeat(81), "a/b"]) {
+    assert.throws(() => validateTask(input({ sessionId: bad })), (error) => error instanceof SchedulerError && /session id/i.test(error.message), bad);
+  }
+});
+
+test("in a session: an idle session gets the prompt as it is, no new session starts, and the run records the session", async () => {
+  const ctx = await inSession();
+  try {
+    ctx.open(SESSION, ctx.folder);
+    const created = await ctx.create();
+    assert.equal(created.sessionId, SESSION);
+    await ctx.scheduler.runNow(created.id);
+    await until(() => ctx.manager.live.get(SESSION).sent.length === 1, "the prompt to be sent");
+    const live = ctx.manager.live.get(SESSION);
+    assert.deepEqual(live.sent, ["/weekly-report team"]);
+    await until(() => ctx.lastRun(created.id).status === "running", "the run to be running");
+    assert.ok(ctx.lastRun(created.id).startedAt);
+    ctx.finishTurn();
+    await until(() => ctx.lastRun(created.id).status === "success", "the run to succeed");
+    const run = ctx.lastRun(created.id);
+    assert.equal(run.sessionId, SESSION);
+    assert.equal(run.turns, 4);
+    assert.equal(run.trigger, "manual");
+    assert.equal(ctx.manager.sessions.length, 0); // nothing was created
+    assert.equal(ctx.annotated.length, 0); // and the session keeps its own name and ordinary limit handling
+    assert.equal(live.closed, 0);
+    assert.equal(live.interrupted, 0);
+    assert.equal((await ctx.scheduler.list())[0].active, null);
+    assert.equal(ctx.outbox.waiting(SESSION), false);
+  } finally { await ctx.cleanup(); }
+});
+
+test("in a session: a busy session makes the prompt wait like a typed message, then it goes out when the turn ends", async () => {
+  const ctx = await inSession();
+  try {
+    const live = ctx.open(SESSION, ctx.folder);
+    live.state = "running"; // Claude is in the middle of a turn
+    const created = await ctx.create();
+    await ctx.scheduler.runNow(created.id);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    assert.deepEqual(live.sent, []); // not sent into the running turn
+    assert.equal(ctx.lastRun(created.id).status, "queued");
+    assert.equal((await ctx.scheduler.list())[0].active, "queued");
+    assert.equal(ctx.outbox.view(SESSION).items.length, 1);
+    live.state = "idle";
+    ctx.manager.emit("session.state", live.summary()); // the running turn ends
+    await until(() => live.sent.length === 1, "the prompt to be sent");
+    assert.equal(live.sent[0], "/weekly-report team");
+    await until(() => ctx.lastRun(created.id).status === "running");
+    ctx.finishTurn();
+    await until(() => ctx.lastRun(created.id).status === "success");
+  } finally { await ctx.cleanup(); }
+});
+
+test("in a session: a usage limit holds the prompt until it resets, and the waiting does not block other tasks", async () => {
+  const ctx = await inSession();
+  try {
+    const live = ctx.open(SESSION, ctx.folder);
+    ctx.manager.emit("session.limit", { id: SESSION, info: { status: "rejected", resetsAt: Date.now() + 250, rateLimitType: "five_hour" } });
+    assert.equal(ctx.outbox.held(SESSION), true);
+    const created = await ctx.create();
+    await ctx.scheduler.runNow(created.id);
+    const other = await ctx.scheduler.create({ name: "Other", prompt: "hello", cwd: ctx.folder, frequency: "manual" });
+    await ctx.scheduler.runNow(other.id); // a task that starts a new session still runs meanwhile
+    await ctx.scheduler.idle();
+    assert.equal(ctx.lastRun(other.id).status, "success");
+    assert.equal(ctx.lastRun(created.id).status, "queued");
+    assert.deepEqual(live.sent, []);
+    // after the reset the session is first asked to continue the turn the limit cut off, then the prompt follows
+    await until(() => live.sent.length === 1, "the automatic continue");
+    assert.match(live.sent[0], /continue/i);
+    ctx.finishTurn();
+    await until(() => live.sent.length === 2, "the prompt");
+    assert.equal(live.sent[1], "/weekly-report team");
+    await until(() => ctx.lastRun(created.id).status === "running");
+    ctx.finishTurn();
+    await until(() => ctx.lastRun(created.id).status === "success");
+  } finally { await ctx.cleanup(); }
+});
+
+test("in a session: a closed session is opened for the prompt, in the task's folder", async () => {
+  const ctx = await inSession();
+  try {
+    const opened = [];
+    const created = await ctx.create();
+    ctx.scheduler.ensureSession = (id, cwd) => { opened.push([id, cwd]); return ctx.open(id, cwd); };
+    await ctx.scheduler.runNow(created.id);
+    await until(() => ctx.manager.live.get(SESSION)?.sent.length === 1, "the prompt to be sent");
+    assert.deepEqual(opened, [[SESSION, ctx.folder]]);
+    assert.equal(ctx.manager.live.get(SESSION).cwd, ctx.folder);
+  } finally { await ctx.cleanup(); }
+});
+
+test("in a session: Stop takes a waiting prompt back out of the queue", async () => {
+  const ctx = await inSession();
+  try {
+    const live = ctx.open(SESSION, ctx.folder);
+    live.state = "running";
+    const created = await ctx.create();
+    await ctx.scheduler.runNow(created.id);
+    await until(() => ctx.outbox.view(SESSION)?.items.length === 1, "the prompt to wait");
+    ctx.scheduler.stopRun(created.id);
+    await until(() => ctx.lastRun(created.id).status === "stopped", "the run to stop");
+    assert.equal(ctx.outbox.waiting(SESSION), false);
+    live.state = "idle";
+    ctx.manager.emit("session.state", live.summary());
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.deepEqual(live.sent, []); // it never goes out
+    assert.equal((await ctx.scheduler.list())[0].active, null);
+  } finally { await ctx.cleanup(); }
+});
+
+test("in a session: Stop on a working run interrupts the turn but leaves the session open", async () => {
+  const ctx = await inSession();
+  try {
+    const live = ctx.open(SESSION, ctx.folder);
+    const created = await ctx.create();
+    await ctx.scheduler.runNow(created.id);
+    await until(() => ctx.lastRun(created.id).status === "running");
+    ctx.scheduler.stopRun(created.id);
+    await until(() => ctx.lastRun(created.id).status === "stopped");
+    assert.equal(live.interrupted, 1);
+    assert.equal(live.closed, 0);
+    live.emit("event", { seq: 2, msg: { type: "result", is_error: false } }); // a late result changes nothing
+    assert.equal(ctx.lastRun(created.id).status, "stopped");
+  } finally { await ctx.cleanup(); }
+});
+
+test("in a session: a prompt the user deletes from the queue ends the run as stopped", async () => {
+  const ctx = await inSession();
+  try {
+    const live = ctx.open(SESSION, ctx.folder);
+    live.state = "running";
+    const created = await ctx.create();
+    await ctx.scheduler.runNow(created.id);
+    await until(() => ctx.outbox.view(SESSION)?.items.length === 1);
+    ctx.outbox.remove(SESSION, ctx.outbox.view(SESSION).items[0].id);
+    await until(() => ctx.lastRun(created.id).status === "stopped");
+    assert.match(ctx.lastRun(created.id).error, /removed from the queue/);
+  } finally { await ctx.cleanup(); }
+});
+
+test("in a session: a prompt that waits too long is withdrawn, and a turn that never ends does not interrupt the session", async () => {
+  const waits = await inSession({ scheduler: { waitMs: 60 } });
+  try {
+    waits.open(SESSION, waits.folder).state = "running";
+    const created = await waits.create();
+    await waits.scheduler.runNow(created.id);
+    await until(() => waits.lastRun(created.id).status === "timeout", "the wait to run out");
+    assert.match(waits.lastRun(created.id).error, /waited too long/);
+    assert.equal(waits.outbox.waiting(SESSION), false);
+  } finally { await waits.cleanup(); }
+  const slow = await inSession({ runTimeoutMs: 60 });
+  try {
+    const live = slow.open(SESSION, slow.folder);
+    const created = await slow.create();
+    await slow.scheduler.runNow(created.id);
+    await until(() => slow.lastRun(created.id).status === "timeout", "the turn to time out");
+    assert.equal(live.interrupted, 0);
+    assert.equal(live.closed, 0);
+  } finally { await slow.cleanup(); }
+});
+
+test("in a session: failed results and a closed process are logged as failed", async () => {
+  const ctx = await inSession();
+  try {
+    ctx.open(SESSION, ctx.folder);
+    const created = await ctx.create();
+    await ctx.scheduler.runNow(created.id);
+    await until(() => ctx.lastRun(created.id).status === "running");
+    ctx.finishTurn(SESSION, { type: "result", is_error: true, subtype: "error_max_turns" });
+    await until(() => ctx.lastRun(created.id).status === "failed");
+    assert.match(ctx.lastRun(created.id).error, /turn limit/);
+    await ctx.scheduler.runNow(created.id);
+    await until(() => ctx.lastRun(created.id).status === "running" && ctx.manager.live.get(SESSION).sent.length === 2);
+    ctx.manager.live.get(SESSION).emit("event", { seq: 3, msg: { type: "wh_closed" } });
+    await until(() => ctx.lastRun(created.id).status === "failed" && /stopped before/.test(ctx.lastRun(created.id).error || ""));
+  } finally { await ctx.cleanup(); }
+});
+
+test("in a session: when sending keeps failing the run fails and the prompt is not left behind to go out later", async () => {
+  const ctx = await inSession({ failSend: true });
+  try {
+    ctx.open(SESSION, ctx.folder);
+    const created = await ctx.create();
+    await ctx.scheduler.runNow(created.id);
+    await until(() => ctx.lastRun(created.id).status === "failed", "the run to fail");
+    assert.match(ctx.lastRun(created.id).error, /could not be sent: the process would not start/);
+    assert.equal(ctx.outbox.waiting(SESSION), false);
+  } finally { await ctx.cleanup(); }
+});
+
+test("in a session: nothing is delivered while the switch is off, and a missing folder fails the run", async () => {
+  const off = await inSession({ on: false });
+  try {
+    const created = await off.create();
+    await assert.rejects(() => off.scheduler.runNow(created.id), (error) => error.status === 409);
+    assert.equal(off.outbox.waiting(SESSION), false);
+  } finally { await off.cleanup(); }
+  const gone = await inSession();
+  try {
+    const created = await gone.create();
+    await rm(gone.folder, { recursive: true });
+    await gone.scheduler.runNow(created.id);
+    await until(() => gone.lastRun(created.id).status === "failed");
+    assert.match(gone.lastRun(created.id).error, /folder does not exist/);
+    assert.equal(gone.outbox.waiting(SESSION), false);
+  } finally { await gone.cleanup(); }
+});
+
+test("in a session: a scheduled time delivers the prompt and the next one is skipped while the first still waits", async () => {
+  const ctx = await inSession();
+  try {
+    const live = ctx.open(SESSION, ctx.folder);
+    live.state = "running";
+    const created = await ctx.create({ frequency: "weekly", weekday: 3, time: "15:45" });
+    ctx.clock.now = at(...WED, 15, 46);
+    assert.deepEqual(await ctx.scheduler.tick(), [created.id]);
+    await until(() => ctx.outbox.view(SESSION)?.items.length === 1);
+    assert.equal(ctx.lastRun(created.id).trigger, "schedule");
+    ctx.clock.now = at(6, 17, 15, 46); // next Wednesday, the first prompt is still waiting
+    await ctx.scheduler.tick();
+    assert.equal(ctx.lastRun(created.id).status, "skipped");
+    assert.equal(ctx.outbox.view(SESSION).items.length, 1);
+  } finally { await ctx.cleanup(); }
+});
+
+test("in a session: a prompt still waiting survives a restart of Wheelhouse and its run carries on", async () => {
+  const ctx = await inSession();
+  try {
+    const live = ctx.open(SESSION, ctx.folder);
+    live.state = "running";
+    const created = await ctx.create();
+    await ctx.scheduler.runNow(created.id);
+    await until(() => ctx.outbox.view(SESSION)?.items.length === 1);
+    await ctx.scheduler.flush();
+    ctx.scheduler.shutdown(); // Wheelhouse closes: the queue file stays
+    await ctx.scheduler.flush();
+    const reloaded = await ctx.make().load();
+    try {
+      const run = reloaded.task(created.id).runs[0];
+      assert.equal(run.status, "queued"); // not failed: its prompt is still in the queue
+      live.state = "idle";
+      ctx.manager.emit("session.state", live.summary());
+      await until(() => live.sent.length === 1, "the prompt to be sent");
+      await until(() => run.status === "running");
+      ctx.finishTurn();
+      await until(() => run.status === "success");
+    } finally { reloaded.shutdown(); await reloaded.flush(); }
+  } finally { await ctx.cleanup(); }
+});
+
+test("in a session: a restart while the turn was working marks the run failed and leaves the session alone", async () => {
+  const ctx = await inSession();
+  try {
+    const live = ctx.open(SESSION, ctx.folder);
+    const created = await ctx.create();
+    await ctx.scheduler.runNow(created.id);
+    await until(() => ctx.lastRun(created.id).status === "running");
+    ctx.scheduler.shutdown();
+    await ctx.scheduler.flush();
+    const reloaded = await ctx.make().load();
+    assert.equal(reloaded.task(created.id).runs[0].status, "failed");
+    assert.match(reloaded.task(created.id).runs[0].error, /closed before/);
+    assert.equal(live.interrupted, 0);
+    reloaded.shutdown();
+  } finally { await ctx.cleanup(); }
+});
+
+test("in a session: deleting the task takes its waiting prompt out of the queue", async () => {
+  const ctx = await inSession();
+  try {
+    ctx.open(SESSION, ctx.folder).state = "running";
+    const created = await ctx.create();
+    await ctx.scheduler.runNow(created.id);
+    await until(() => ctx.outbox.view(SESSION)?.items.length === 1);
+    await ctx.scheduler.remove(created.id);
+    assert.equal(ctx.outbox.waiting(SESSION), false);
+  } finally { await ctx.cleanup(); }
+});
+
+// ---- the session must exist ------------------------------------------------------------------
+const known = () => {
+  const sessions = new Map([[SESSION, { cwd: "", archived: false, title: "Weekly" }]]);
+  return { sessions, lookupSession: async (id) => sessions.get(id) ?? null };
+};
+
+test("a task checks that its session exists, is not archived, and takes the session's own folder", async () => {
+  const lookup = known();
+  const ctx = await inSession({ scheduler: { lookupSession: lookup.lookupSession } });
+  try {
+    lookup.sessions.get(SESSION).cwd = ctx.folder;
+    const base = { name: "Weekly report", prompt: "/weekly-report team", sessionId: SESSION, frequency: "weekly", weekday: 3, time: "15:45" };
+    const created = await ctx.scheduler.create(base); // no folder given: the session's folder is used
+    assert.equal(created.cwd, ctx.folder);
+    assert.deepEqual(created.session, { state: "ok", title: "Weekly" });
+    await assert.rejects(() => ctx.scheduler.create({ ...base, sessionId: "no-such-session" }), (error) => error instanceof SchedulerError && error.status === 400 && /session was not found/.test(error.message));
+    lookup.sessions.set("old-one", { cwd: ctx.folder, archived: true, title: "Old" });
+    await assert.rejects(() => ctx.scheduler.create({ ...base, sessionId: "old-one" }), /archived/);
+    // The session goes away later: the task is still listed (as missing) and can still be edited, paused or deleted.
+    lookup.sessions.delete(SESSION);
+    const [view] = await ctx.scheduler.list();
+    assert.equal(view.session.state, "missing");
+    const edited = await ctx.scheduler.update(created.id, { prompt: "/weekly-report zare" });
+    assert.equal(edited.prompt, "/weekly-report zare");
+    await assert.rejects(() => ctx.scheduler.update(created.id, { sessionId: "another-missing" }), /not found/);
+    lookup.sessions.get("old-one").archived = false;
+    assert.equal((await ctx.scheduler.update(created.id, { sessionId: "old-one" })).sessionId, "old-one");
+  } finally { await ctx.cleanup(); }
+});
+
+test("in a session: a deleted or archived session fails the run clearly and never starts a new session", async () => {
+  const lookup = known();
+  const ctx = await inSession({ scheduler: { lookupSession: lookup.lookupSession } });
+  try {
+    lookup.sessions.get(SESSION).cwd = ctx.folder;
+    const created = await ctx.create({ sessionId: SESSION });
+    lookup.sessions.delete(SESSION); // deleted after the task was made
+    await ctx.scheduler.runNow(created.id);
+    await until(() => ctx.lastRun(created.id).status === "failed");
+    assert.match(ctx.lastRun(created.id).error, /session was not found/);
+    assert.equal(ctx.manager.live.size, 0); // no session object was invented for the unknown id
+    assert.equal(ctx.outbox.waiting(SESSION), false);
+    assert.equal((await ctx.scheduler.list())[0].active, null);
+    lookup.sessions.set(SESSION, { cwd: ctx.folder, archived: true, title: "Weekly" });
+    await ctx.scheduler.runNow(created.id);
+    await until(() => ctx.lastRun(created.id).status === "failed" && /archived/.test(ctx.lastRun(created.id).error || ""));
+    assert.equal((await ctx.scheduler.list())[0].session.state, "archived");
+    lookup.sessions.set(SESSION, { cwd: ctx.folder, archived: false, title: "Weekly" });
+    await ctx.scheduler.runNow(created.id);
+    await until(() => ctx.manager.live.get(SESSION)?.sent.length === 1);
+    assert.equal(ctx.manager.live.get(SESSION).cwd, ctx.folder);
+  } finally { await ctx.cleanup(); }
+});
+
+test("in a session: a session deleted while the prompt waits ends the run as failed", async () => {
+  const ctx = await inSession();
+  try {
+    ctx.open(SESSION, ctx.folder).state = "running";
+    const created = await ctx.create();
+    await ctx.scheduler.runNow(created.id);
+    await until(() => ctx.outbox.view(SESSION)?.items.length === 1);
+    ctx.outbox.forget(SESSION); // what the server does when the session is deleted
+    await until(() => ctx.lastRun(created.id).status === "failed");
+    assert.match(ctx.lastRun(created.id).error, /session was deleted/);
+  } finally { await ctx.cleanup(); }
+});
+
+test("in a session: two tasks for one session go out one after the other and each ends with its own turn", async () => {
+  const ctx = await inSession();
+  try {
+    const live = ctx.open(SESSION, ctx.folder);
+    live.state = "running";
+    const first = await ctx.create({ name: "Zare report", prompt: "/weekly-report zare" });
+    const second = await ctx.create({ name: "Team report", prompt: "/weekly-report team" });
+    await ctx.scheduler.runNow(first.id);
+    await ctx.scheduler.runNow(second.id);
+    await until(() => ctx.outbox.view(SESSION)?.items.length === 2);
+    assert.equal((await ctx.scheduler.list()).every((item) => item.active === "queued"), true);
+    live.state = "idle";
+    ctx.manager.emit("session.state", live.summary());
+    await until(() => live.sent.length === 1);
+    assert.deepEqual(live.sent, ["/weekly-report zare"]);
+    await until(() => ctx.lastRun(first.id).status === "running");
+    assert.equal(ctx.lastRun(second.id).status, "queued"); // still waiting behind the first
+    ctx.finishTurn();
+    await until(() => ctx.lastRun(first.id).status === "success");
+    await until(() => live.sent.length === 2);
+    assert.equal(live.sent[1], "/weekly-report team");
+    await until(() => ctx.lastRun(second.id).status === "running");
+    ctx.finishTurn();
+    await until(() => ctx.lastRun(second.id).status === "success");
+  } finally { await ctx.cleanup(); }
+});
+
+test("in a session: a run that waits for a usage limit says so (held) until the prompt goes out", async () => {
+  const ctx = await inSession();
+  try {
+    ctx.open(SESSION, ctx.folder);
+    ctx.manager.emit("session.limit", { id: SESSION, info: { status: "rejected", resetsAt: Date.now() + 60_000, rateLimitType: "five_hour" } });
+    const created = await ctx.create();
+    await ctx.scheduler.runNow(created.id);
+    await until(() => ctx.outbox.view(SESSION)?.items.length === 1);
+    const [view] = await ctx.scheduler.list();
+    assert.equal(view.active, "queued");
+    assert.equal(view.held, true);
+    assert.deepEqual(ctx.manager.live.get(SESSION).sent, []);
+  } finally { await ctx.cleanup(); }
+});
+
+test("in a session: after a restart that missed the weekly time, one catch-up prompt goes out", async () => {
+  const ctx = await inSession();
+  try {
+    ctx.open(SESSION, ctx.folder);
+    const created = await ctx.create({ frequency: "weekly", weekday: 3, time: "15:45" });
+    ctx.scheduler.shutdown(); // Wheelhouse is closed over Wednesday 15:45
+    await ctx.scheduler.flush();
+    ctx.clock.now = at(6, 11, 9, 0); // Thursday morning
+    const restarted = await ctx.make().load();
+    try {
+      assert.deepEqual(await restarted.tick(), [created.id]);
+      await until(() => ctx.manager.live.get(SESSION).sent.length === 1);
+      const run = restarted.task(created.id).runs[0];
+      assert.equal(run.trigger, "catchup");
+      assert.equal(run.scheduledFor, at(6, 10, 15, 45));
+      assert.deepEqual(await restarted.tick(), []); // not twice
+    } finally { restarted.shutdown(); await restarted.flush(); }
+  } finally { await ctx.cleanup(); }
+});
+
+test("weekly 15:45 and 14:30 on Wednesday in Asia/Tehran fire at those local times (no clock change there)", () => {
+  const before = process.env.TZ;
+  process.env.TZ = "Asia/Tehran";
+  try {
+    if (Intl.DateTimeFormat().resolvedOptions().timeZone !== "Asia/Tehran") return; // this platform cannot switch zones at run time
+    const local = (ms) => new Date(ms).toLocaleString("en-GB", { timeZone: "Asia/Tehran", weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+    const team = task({ frequency: "weekly", weekday: 3, time: "15:45" });
+    const zare = task({ frequency: "weekly", weekday: 3, time: "14:30" });
+    // Around the dates when Iran used to change its clocks the wall-clock time stays the same.
+    for (const day of ["2026-03-18", "2026-03-25", "2026-09-16", "2026-09-23"].map((text) => new Date(`${text}T00:00:00Z`).getTime())) {
+      assert.match(local(nextRun(team, day)), /^Wed,? 15:45$/);
+      assert.match(local(nextRun(zare, day)), /^Wed,? 14:30$/);
+      assert.equal(nextRun(team, day) - day < 8 * DAY, true);
+    }
+    assert.equal(new Date(nextRun(team, new Date("2026-11-24T12:00:00Z").getTime())).toISOString(), "2026-11-25T12:15:00.000Z"); // 15:45 at +03:30
+  } finally {
+    if (before === undefined) delete process.env.TZ; else process.env.TZ = before;
+  }
+});
+
+test("a clock change that skips or repeats the scheduled time still fires once a day", () => {
+  const before = process.env.TZ;
+  process.env.TZ = "America/New_York";
+  try {
+    if (Intl.DateTimeFormat().resolvedOptions().timeZone !== "America/New_York") return;
+    const day = (y, m, d, h = 0) => new Date(y, m - 1, d, h).getTime();
+    const skipped = task({ frequency: "daily", time: "02:30" }); // 2026-03-08: 02:30 does not exist
+    const run = nextRun(skipped, day(2026, 3, 8));
+    assert.equal(new Date(run).getDate(), 8);
+    assert.equal(nextRun(skipped, run) > run, true); // strictly later, so the same moment never fires twice
+    const repeated = task({ frequency: "daily", time: "01:30" }); // 2026-11-01: 01:30 happens twice
+    const first = nextRun(repeated, day(2026, 11, 1));
+    assert.equal(new Date(nextRun(repeated, first)).getDate(), 2);
+  } finally {
+    if (before === undefined) delete process.env.TZ; else process.env.TZ = before;
+  }
 });

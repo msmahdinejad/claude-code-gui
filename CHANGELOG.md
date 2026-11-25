@@ -5,6 +5,18 @@ and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, mi
 
 ## [Unreleased]
 
+### Added
+- **Scheduled tasks can run inside an existing session.** In the task editor, *Where to run → Inside an existing session*
+  with a picker (recent sessions with title and folder, or a pasted session id). At the scheduled time the prompt joins
+  that session's server-side send queue like a typed message: it is sent at once when the session is idle, waits while
+  Claude is working or a usage limit holds the session (nothing is interrupted), and a closed session is resumed for it.
+  The run log records the status and the session id; a waiting prompt survives a restart of Wheelhouse. *Stop* removes a
+  waiting prompt or interrupts a working turn. The session must exist and not be archived (checked when the task is saved
+  and again at every run; a deleted or archived session fails the run with a clear reason and never starts a new session),
+  the task runs in the session's own folder, a task whose session is gone is shown as *Session missing*, a run that waits for
+  a usage limit shows *Waiting for the usage limit*, and the page shows the time zone the schedule is read in. API: tasks
+  take `sessionId`; the folder may be left out for them.
+
 ### Fixed
 - A session whose turn ended while a background shell (tests, a build) still runs now also stays "working" (orange),
   not only for subagents. Only tasks Claude Code itself marks as not activity (watchers) are left out.
