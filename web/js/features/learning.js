@@ -54,7 +54,7 @@ registerSettingsSection({
         host.replaceChildren(h("div.banner.error", icon("alert", 14), h("span", errorMessage(error))));
         return;
       }
-      const pending = data.inbox.filter((item) => item.status === "pending");
+      const pending = data.inbox.filter((item) => ["pending", "needs-user"].includes(item.status));
       const parts = [];
 
       parts.push(group("Status",
@@ -74,7 +74,7 @@ registerSettingsSection({
           h("span.muted.small", t(STATUS_LABELS[item.status] || item.status || "")),
           h("span.muted.small", [item.project, when(item.ts)].filter(Boolean).join(" · ")),
           h("span", { style: { flex: "1" } }),
-          item.status === "pending"
+          ["pending", "needs-user"].includes(item.status)
             ? h("button.btn.small", { type: "button", onclick: () => setStatus(item.id, "skipped") }, t("Skip"))
             : item.status === "skipped" ? h("button.btn.small", { type: "button", onclick: () => setStatus(item.id, "pending") }, t("Put back")) : null),
         h("div", { dir: "auto", style: { marginTop: "4px", whiteSpace: "pre-wrap" } }, item.text)));

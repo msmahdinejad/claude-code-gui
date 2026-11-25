@@ -292,6 +292,7 @@ export class Outbox extends EventEmitter {
     this.timers.delete(id);
     this.boxes.delete(id);
     this.unlink(id);
+    this.emit("forgotten", id);
   }
 
   // ---- events from the sessions -------------------------------------------------
@@ -450,6 +451,7 @@ export class Outbox extends EventEmitter {
       await this.sendFn(id, { text: entry.text, images: entry.images, cwd: box.cwd, source });
       if (source === "auto-continue") box.autoCount += 1;
       else box.autoCount = 0;
+      if (source === "outbox") this.emit("sent", id, entry.id); // a scheduled run waits for its own message to go out
       box.error = null;
       box.retryAt = 0;
       if (!box.items.length) box.skipShared = false;

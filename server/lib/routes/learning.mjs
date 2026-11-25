@@ -14,7 +14,7 @@ import path from "node:path";
 const MAX_ITEMS = 300;
 const MAX_FILE = 2 * 1024 * 1024;
 const USAGE_DAYS = 60;
-const STATUSES = new Set(["pending", "applied", "applied-by-session", "skipped"]);
+const STATUSES = new Set(["pending", "applied", "applied-by-session", "skipped", "needs-user"]);
 
 const git = (cwd, args) => new Promise((resolve) => {
   execFile("git", ["-C", cwd, ...args], { timeout: 8000, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (error, stdout) => resolve(error ? null : stdout));

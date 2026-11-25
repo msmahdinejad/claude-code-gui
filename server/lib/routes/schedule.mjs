@@ -1,9 +1,12 @@
 // Scheduled tasks (see ../scheduler.mjs): recurring prompts that Wheelhouse starts as Claude Code sessions while it runs.
 // Tasks live in <dataDir>/scheduled-tasks/<id>.json. Nothing runs unless the server pref `scheduledTasksEnabled` is true
-// (off by default); every run uses the account's usage like any other session.
+// (off by default); every run uses the account's usage like any other session. A task that names a session runs inside it:
+// its prompt joins that session's send queue (routes/outbox.mjs), so it waits like a typed message while the session is busy
+// or a usage limit holds it, and the session is opened again (resumed) if it is closed.
+import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 import { TaskScheduler } from "../scheduler.mjs";
 
-export default function register({ route, config, manager, store, join }) {
+export default function register({ route, config, manager, store, session, join }) {
   const scheduler = new TaskScheduler({
     dir: join(config.dataDir, "scheduled-tasks"),
     manager,
@@ -11,6 +14,22 @@ export default function register({ route, config, manager, store, join }) {
     enabled: () => store.data.prefs.scheduledTasksEnabled === true,
     // The run's session is named after the task in the session list (and keeps that name: no model-written title).
     annotate: (sessionId, meta) => store.patchSessionMeta(sessionId, meta),
+    outbox: () => manager.outbox || null,
+    // The session object exists from the first queued message, so every page shows what waits for it.
+    ensureSession: (id, cwd) => session(id, { create: true, cwd }),
+    // Does the session exist (open here, or with a transcript of the active profile)? null = no, undefined = cannot tell.
+    lookupSession: async (id) => {
+      const live = manager.get(id);
+      let info;
+      try {
+        info = await getSessionInfo(id);
+      } catch {
+        if (!live) return undefined;
+      }
+      if (!live && !info) return null;
+      const title = store.sessionMeta(id)?.title || info?.customTitle || String(info?.firstPrompt || "").slice(0, 60);
+      return { cwd: live?.cwd || info?.cwd || "", archived: store.data.archived.includes(id), title };
+    },
   });
   // A moment after the server is up: load the tasks, then look at what is due (one catch-up run per task that missed one).
   scheduler.load().then(() => scheduler.start()).catch((error) => console.warn(`[wheelhouse] scheduled tasks were not loaded: ${error.message}`));
