@@ -3,7 +3,7 @@ import { h, copyText, formatCost, formatDuration, formatNumber, formatTokens, me
 import { icon } from "../core/icons.js";
 import { t } from "../core/i18n.js";
 import { app, bus } from "../core/state.js";
-import { renderMarkdown, wireMarkdownActions } from "./markdown.js";
+import { renderMarkdown, wireMarkdownActions, decorateMarkdown } from "./markdown.js";
 import { ToolCard, filePath, taskMeta } from "./tools.js";
 import "./lightbox.js";
 import { isBusy } from "./reducer.js";
@@ -311,6 +311,7 @@ export class ChatView {
           entry.timer = null;
           el.innerHTML = renderMarkdown(block.text);
           el.classList.add("markdown");
+          decorateMarkdown(el, { streaming: Boolean(block.streaming) });
           entry.last = block.text;
           entry.renderedAt = performance.now();
         }

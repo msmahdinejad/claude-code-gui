@@ -16,10 +16,29 @@ and the project uses [Semantic Versioning](https://semver.org/) (while `0.x`, mi
   the task runs in the session's own folder, a task whose session is gone is shown as *Session missing*, a run that waits for
   a usage limit shows *Waiting for the usage limit*, and the page shows the time zone the schedule is read in. API: tasks
   take `sessionId`; the folder may be left out for them.
+- **File links like Claude Desktop**: paths Claude mentions (inline code, running text, markdown links, tool cards)
+  become links once the server confirms the file exists; they show the file name and open the file beside the chat:
+  HTML/PDF of the project in Preview, artifacts in Artifacts, everything else in Files. A right click shows Claude
+  Desktop's menu: *Attach as context*, *Open in editor* (`editor` option), *Show in Explorer/Finder*, *Copy* absolute
+  path / relative path / file name, plus *Open in default app* for documents and media (never programs or scripts).
+- **Files tab editor**: syntax-highlighted editor with line numbers, indent/outdent and `Ctrl+S`; SVG and Mermaid
+  previews; when the file changed on disk while you edited, choose *Keep editing*, *Discard my edits* or *Overwrite*.
+- **Artifacts panel**: pages (HTML), SVG, Mermaid diagrams and Markdown documents that Claude writes to
+  `.wheelhouse/artifacts/` of the project render beside the chat with every revision kept as a version (switch,
+  restore, copy, download, open in the browser, ask Claude to change it). HTML runs in a sandboxed iframe with no access
+  to the app; Chart.js is bundled for charts. *Open as artifact* on `html`, `svg` and `mermaid` code blocks.
+  Settings → Model & behavior → *Artifacts* (on by default, adds a short hint to the system prompt) and *Open new
+  artifacts automatically*.
 
 ### Fixed
 - A session whose turn ended while a background shell (tests, a build) still runs now also stays "working" (orange),
   not only for subagents. Only tasks Claude Code itself marks as not activity (watchers) are left out.
+- **Settings → Learning** now also lists lessons whose status is `needs-user` (waiting for your decision) in the review
+  list; they can be skipped like pending ones.
+
+### Security
+- File links never show, resolve or open credential stores (`~/.ssh`, `~/.aws`, `~/.kube`, `.credentials.json`,
+  `*.pem`, ...), wherever they are.
 
 ## [0.9.0] - 2026-11-24
 

@@ -40,7 +40,8 @@ Sessions grouped by project, search, pin, archive, rename, fork, delete, resume,
 Worktrees (`--worktree`) via Advanced → session options — 🟡. Listing and removing git worktrees (including `.claude/worktrees/`) in the Changes panel — ✅.
 
 ## Panels (inspector)
-Changes/Git (stage, commit, branches, log, diff unified/split, push, pull fast-forward, stash, PR card via `gh`) ✅ · Files (tree, preview, edit/save, @-reference) ✅ · Terminal (real PTY via optional `node-pty`, basic runner as fallback) ✅ · Preview (local web app, HTML/PDF) ✅ ·
+Changes/Git (stage, commit, branches, log, diff unified/split, push, pull fast-forward, stash, PR card via `gh`) ✅ · Files (tree, preview incl. SVG/Mermaid, highlighted editor, save with conflict check, @-reference) ✅ · Terminal (real PTY via optional `node-pty`, basic runner as fallback) ✅ · Preview (local web app, HTML/PDF) ✅ ·
+File links in the chat with Claude Desktop's right-click menu ✅ · Artifacts (HTML/SVG/Mermaid/Markdown with versions) ✅ ·
 Context usage ✅ · Usage & rate limits ✅ · Tasks ✅ · Activity (hooks, denials, raw messages, stderr) ✅ · Checkpoints ✅ · MCP ✅ · Extensions overview ✅ · Plugins ✅.
 
 ## Settings

@@ -47,6 +47,7 @@
     "i18n:check": "node scripts/extract-i18n.mjs --fail",
     "build:vendor": "node scripts/build-vendor.mjs",
     "build:xterm": "node scripts/build-xterm.mjs",
+    "build:mermaid": "node scripts/build-mermaid.mjs",
     "build:icons": "node scripts/build-icons.mjs"
   },
   "engines": {
@@ -60,12 +61,14 @@
     "@eslint/js": "^10.0.1",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
+    "chart.js": "^4.6.2",
     "dompurify": "^3.2.0",
     "esbuild": "^0.28.2",
     "eslint": "^10.13.0",
     "globals": "^17.13.0",
     "highlight.js": "^11.11.0",
     "marked": "^18.1.1",
+    "mermaid": "^11.17.2",
     "puppeteer-core": "^25.16.0"
   },
   "optionalDependencies": {

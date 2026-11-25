@@ -137,7 +137,8 @@ test("background work after the turn is counted (subagents and shells, not ambie
   manager.on("session.sent", (event) => sent.push(event.source));
   const session = manager.create({ cwd: process.cwd() });
   await session.sendUser({ text: "hi", source: "outbox" });
-  await new Promise((resolve) => setTimeout(resolve, 80));
+  // Wait until the scripted messages are through (a fixed 80 ms was too short on a loaded machine), at most 3 s.
+  for (let i = 0; i < 60 && !(limits.length >= 2 && session.agentTasks === 1); i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
   assert.ok(states.includes(2), "the subagent and the shell counted, the ambient watcher not");
   assert.equal(session.agentTasks, 1, "the shell still runs after the subagent finished");
   assert.equal(session.backgroundTasks, 1, "the shell is still a background task");

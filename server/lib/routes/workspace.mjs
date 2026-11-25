@@ -11,7 +11,18 @@ const MAX_LIST = 2000;
 const TERM_BUFFER_BYTES = 2 * 1024 * 1024;
 const IS_WIN = process.platform === "win32";
 
-export default function register({ route, HttpError, fsgit }) {
+// Credential stores that file links never show or hand to another app (folders anywhere in the path, or exact file names).
+const CREDENTIAL_DIRS = new Set([".ssh", ".gnupg", ".aws", ".azure", ".kube", ".password-store", ".docker"]);
+const CREDENTIAL_FILES = new Set([".credentials.json", ".git-credentials", ".netrc", "_netrc", ".pgpass", ".npmrc", ".pypirc", "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"]);
+/** Is this (real, absolute) path a private key, a token store or inside a credentials folder? */
+export function isCredentialPath(path) {
+  const parts = String(path ?? "").toLowerCase().split(/[\\/]+/).filter(Boolean);
+  if (!parts.length) return false;
+  const name = parts.at(-1);
+  return CREDENTIAL_FILES.has(name) || /\.(pem|key|p12|pfx|keystore|jks)$/.test(name) || parts.slice(0, -1).some((part) => CREDENTIAL_DIRS.has(part));
+}
+
+export default function register({ route, HttpError, fsgit, config }) {
   // ---- helpers -------------------------------------------------------------------
   const bad = (message) => new HttpError(400, message);
 
@@ -566,10 +577,142 @@ export default function register({ route, HttpError, fsgit }) {
     const target = resolve(root, String(query.get("path") || ""));
     let real;
     try { real = await realpath(target); } catch { throw new HttpError(404, "not found"); }
+    refuseCredentials(real);
     const inside = within(root, real);
     const max = Math.min(Math.max(Number(query.get("max")) || 1_000_000, 1), 4_000_000);
     const info = await fsgit.readTextFile(real, { max });
     return { ...info, path: real, inside, rel: inside ? relative(root, real).split(sep).join("/") : null };
+  });
+
+  // ---- file links: which of the paths Claude mentioned exist, and what the OS may do with them ------------
+  const MAX_RESOLVE = 80;
+  const MAX_BARE_SEARCHES = 10;
+  // Viewing is allowed wherever you can read (like the rest of the app; editing stays inside the project folder), except
+  // the usual credential stores: a path printed in a chat, or planted by a prompt injection, must never put a private key
+  // or a token on screen with one click.
+
+  function refuseCredentials(real) {
+    if (isCredentialPath(real)) throw new HttpError(403, "this file holds credentials; Wheelhouse does not open it");
+  }
+
+  /** Existence of the paths the chat mentions (relative ones against the session folder, then the repository root). Reads nothing. */
+  route("POST", "/api/ws/fs/resolve", async ({ body }) => {
+    const root = await realDir(body.cwd);
+    const repo = await repoRoot(root);
+    const wanted = (Array.isArray(body.paths) ? body.paths : []).filter((item) => typeof item === "string").slice(0, MAX_RESOLVE);
+    const results = {};
+    let searches = 0;
+    const describe = async (candidate) => {
+      let info;
+      try { info = await stat(candidate); } catch { return null; }
+      if (!info.isFile() && !info.isDirectory()) return null;
+      const real = await realpath(candidate).catch(() => null);
+      if (!real || isCredentialPath(real)) return null;
+      const inside = within(root, real);
+      return { exists: true, dir: info.isDirectory(), abs: real, inside, rel: inside ? relative(root, real).split(sep).join("/") : null, size: info.isFile() ? info.size : null };
+    };
+    for (const raw of wanted) {
+      if (!raw || raw.length > 1000 || raw.includes("\0")) { results[raw] = { exists: false }; continue; }
+      const absolute = isAbsolute(raw) || /^[A-Za-z]:[\\/]/.test(raw);
+      const candidates = absolute ? [resolve(raw)] : [...new Set([resolve(root, raw), ...(repo ? [resolve(repo, raw)] : [])])];
+      let found = null;
+      for (const candidate of candidates) {
+        found = await describe(candidate);
+        if (found) break;
+      }
+      // A lone file name ("tools.js"): when exactly one tracked file has that name, that is the one meant.
+      if (!found && !absolute && !/[\\/]/.test(raw) && searches < MAX_BARE_SEARCHES) {
+        searches += 1;
+        const hits = (await fsgit.searchFiles(root, raw, 30).catch(() => [])).filter((hit) => basename(hit.path).toLowerCase() === raw.toLowerCase());
+        if (hits.length === 1) found = await describe(resolve(root, hits[0].path));
+      }
+      results[raw] = found || { exists: false };
+    }
+    return { results };
+  });
+
+  route("GET", "/api/ws/fs/stat", async ({ query }) => {
+    const root = await realDir(query.get("cwd"));
+    let real;
+    try { real = await realpath(resolve(root, String(query.get("path") || ""))); } catch { return { exists: false }; }
+    const info = await stat(real).catch(() => null);
+    if (!info || isCredentialPath(real)) return { exists: false };
+    return { exists: true, kind: info.isDirectory() ? "dir" : "file", size: info.size, mtime: info.mtimeMs, inside: within(root, real) };
+  });
+
+  // What the operating system may open on its own. Programs and scripts are left out: a path printed in a chat must never
+  // become "run this". Source code goes to the editor instead.
+  const OPEN_EXT = new Set([
+    "md", "markdown", "txt", "log", "pdf", "html", "htm", "svg", "png", "jpg", "jpeg", "gif", "webp", "bmp", "avif", "ico",
+    "json", "jsonl", "csv", "tsv", "xml", "yml", "yaml", "toml", "ini", "cfg", "conf", "env",
+    "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "rtf", "mmd", "diff", "patch",
+    "mp3", "wav", "ogg", "mp4", "webm", "mov",
+  ]);
+
+  function launch(command, args) {
+    return new Promise((done, fail) => {
+      let child;
+      try { child = spawn(command, args, { detached: true, stdio: "ignore", windowsHide: false }); } catch (error) { fail(new HttpError(501, `could not start ${command}: ${error.message}`)); return; }
+      child.once("error", (error) => fail(new HttpError(501, `could not start ${command}: ${error.code === "ENOENT" ? "not found" : error.message}`)));
+      child.once("spawn", () => { child.unref(); done(); });
+    });
+  }
+
+  /** The editor to open files in: `editor` from the config, else VS Code / Cursor where they usually are, else `code` on the PATH. */
+  async function findEditor() {
+    const configured = String(config?.editor || process.env.WHEELHOUSE_EDITOR || "").trim();
+    if (configured) {
+      if (IS_WIN && /\.(cmd|bat)$/i.test(configured)) throw new HttpError(501, "set the editor to its .exe (a .cmd file cannot be started safely)");
+      return configured;
+    }
+    if (!IS_WIN) return "code";
+    const local = process.env.LOCALAPPDATA || "";
+    const programs = [process.env.ProgramFiles, process.env["ProgramFiles(x86)"]].filter(Boolean);
+    const guesses = [
+      join(local, "Programs", "Microsoft VS Code", "Code.exe"), ...programs.map((dir) => join(dir, "Microsoft VS Code", "Code.exe")),
+      join(local, "Programs", "cursor", "Cursor.exe"), join(local, "Programs", "Windsurf", "Windsurf.exe"),
+    ];
+    for (const guess of guesses) if (await stat(guess).then((info) => info.isFile(), () => false)) return guess;
+    for (const dir of String(process.env.PATH || "").split(";").filter(Boolean)) { // ...\Microsoft VS Code\bin\code.cmd -> ...\Code.exe
+      if (await stat(join(dir, "code.cmd")).then((info) => info.isFile(), () => false)) {
+        const exe = resolve(dir, "..", "Code.exe");
+        if (await stat(exe).then((info) => info.isFile(), () => false)) return exe;
+      }
+    }
+    throw new HttpError(501, "no editor found: set \"editor\" in the Wheelhouse config to the path of your editor (for example Code.exe)");
+  }
+
+  route("POST", "/api/ws/fs/open", async ({ body }) => {
+    const root = await realDir(body.cwd);
+    let real;
+    try { real = await realpath(resolve(root, String(body.path ?? ""))); } catch { throw new HttpError(404, "not found"); }
+    const info = await stat(real);
+    const action = String(body.action || "default");
+    if (action !== "reveal") refuseCredentials(real);
+    const line = Number.isInteger(body.line) && body.line > 0 && body.line < 10_000_000 ? body.line : 0;
+    const dry = Boolean(process.env.WHEELHOUSE_NO_OPEN); // tests: validate, but start nothing
+    if (action === "reveal") {
+      if (!dry) {
+        if (IS_WIN) await launch("explorer.exe", [`/select,${real}`]);
+        else if (process.platform === "darwin") await launch("open", ["-R", real]);
+        else await launch("xdg-open", [info.isDirectory() ? real : dirname(real)]);
+      }
+      return { ok: true, action };
+    }
+    if (action === "editor") {
+      if (info.isDirectory()) throw bad("an editor opens files, not folders");
+      if (dry) return { ok: true, action };
+      const editor = await findEditor();
+      await launch(editor, ["--goto", `${real}${line ? `:${line}` : ""}`]);
+      return { ok: true, action };
+    }
+    if (action !== "default") throw bad("unknown action");
+    if (info.isFile() && !OPEN_EXT.has(real.split(".").pop().toLowerCase())) throw new HttpError(415, "this kind of file is not opened by the system from here; use the editor or show it in the folder");
+    if (!dry) {
+      if (IS_WIN) await launch("explorer.exe", [real]);
+      else await launch(process.platform === "darwin" ? "open" : "xdg-open", [real]);
+    }
+    return { ok: true, action };
   });
 
   route("POST", "/api/ws/fs/write", async ({ body }) => {

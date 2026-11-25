@@ -28,6 +28,15 @@ What it does:
   and refuse paths outside the project folder the request names; git revisions and branch names are validated (nothing
   that starts with `-` reaches git as an option); the terminal only starts in existing directories. Memory, rules,
   keybindings and theme routes only touch Markdown/JSON files inside their own folders.
+- **File links and artifacts.** File links only *view* files outside the project folder (editing stays inside it),
+  never show, resolve or open credential stores (`~/.ssh`, `~/.aws`, `~/.kube`, `.credentials.json`, `*.pem`, ...),
+  and hand to the default app only documents and media, never programs or scripts. Artifact names are validated
+  (`.wheelhouse/artifacts/<name>.{html,svg,md,mmd}`, no folders, no symlinks, at most 5 MB). HTML artifacts are served
+  with a CSP sandbox (opaque origin, `connect-src 'none'`, no images or frames from the network, scripts only from the
+  app's bundled libraries and three public CDNs) and framed without `allow-same-origin`, so a page Claude writes cannot
+  read the app, its storage or call its API; SVG is shown as an image (no scripts); Mermaid renders in strict mode.
+  `GET /api/artifacts/view` is the one API request a browser may also make as a top-level navigation (*Open in
+  browser*); it returns only the sandboxed artifact.
 - **Sanitized rendering.** Model output is rendered as Markdown through DOMPurify; links open with `noopener`.
 - **Permissions stay Claude Code's.** Tool approvals, permission modes, allow/deny rules and hooks are enforced by the
   Claude Code executable, not re-implemented here. "Bypass permissions" must be enabled explicitly in Settings.
